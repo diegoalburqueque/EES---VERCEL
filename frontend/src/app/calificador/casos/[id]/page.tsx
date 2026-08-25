@@ -2,21 +2,36 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSesion } from "@/components/SesionProvider";
 import { useCasos } from "@/components/CasosProvider";
 import { CalificadorHeader } from "@/components/CalificadorHeader";
-import { FichaEditable, leerPorcentajeFinal, leerValoresGuardados } from "@/components/FichaEditable";
+import { FichaEditable, PantallaCerofilas } from "@/components/FichaEditable";
+import {
+  TablaComparativaIdis,
+  PanelResolucion,
+  ResolucionRegistrada,
+  type CajaResolucion,
+} from "@/components/ResolucionCalificador";
+import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 import { formatearFecha } from "@/lib/fechas";
 
 export default function DetalleCasoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { sesion } = useSesion();
-  const { casos, cargando, confirmarPropuesta, modificarYCalificar, guardarFicha, cargarDetalleCaso } = useCasos();
-  const [modoModificar, setModoModificar] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
+  const { casos, cargando, cargarDetalleCaso, marcarSubidoCerofilas } = useCasos();
+  // "Modificar propuesta" es el único botón de edición: cuando está abierto, la ficha entra en
+  // modo editable y al guardar la resolución se persisten juntos ficha + decisión.
+  const [caja, setCaja] = useState<CajaResolucion>("ninguna");
+  // Tras ratificar o modificar, se muestra la pantalla de "copiar y pegar en CeroFilas" en vez
+  // de navegar directo — el calificador ya terminó de calificar, ahora tiene que subirlo.
+  const [mostrarCerofilas, setMostrarCerofilas] = useState(false);
+  const [subiendoCerofilas, setSubiendoCerofilas] = useState(false);
+  // Desde el histórico, "Ver CeroFilas" enlaza con ?cerofilas=1 para reabrir esta misma
+  // pantalla en un caso ya resuelto (si no, solo se veía una vez, justo al resolver).
+  const verCerofilasDesdeUrl = searchParams.get("cerofilas") === "1";
 
   const caso = casos.find((c) => c.id === id);
 
@@ -28,7 +43,7 @@ export default function DetalleCasoPage() {
 
   if (cargando) {
     return (
-      <div className="flex flex-1 flex-col bg-white">
+      <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
         <CalificadorHeader />
         <main className="flex-1 px-6 py-6">
           <p className="text-sm text-zinc-500">Cargando caso...</p>
@@ -39,7 +54,7 @@ export default function DetalleCasoPage() {
 
   if (!caso || caso.calificadorAsignadoId !== sesion.id || caso.estadoChecklist === "NO_APTO") {
     return (
-      <div className="flex flex-1 flex-col bg-white">
+      <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
         <CalificadorHeader />
         <main className="flex-1 px-6 py-6">
           <p className="text-sm text-zinc-500">
@@ -53,19 +68,23 @@ export default function DetalleCasoPage() {
     );
   }
 
-  const casoId = caso.id;
   const yaCalificado = caso.estadoCalificacion === "CALIFICADO";
   const { propuesta } = caso;
+  const mostrarPantallaCerofilas = mostrarCerofilas || (verCerofilasDesdeUrl && yaCalificado);
+  // Vuelve a donde tenga sentido: si entró desde el histórico, de vuelta al histórico; si
+  // recién terminó de calificar, a "Mis casos" (ya no está pendiente ahí).
+  const rutaVolverCerofilas = verCerofilasDesdeUrl ? "/calificador/historico" : "/calificador";
 
   // Ocupa el lado izquierdo de la barra que despliega los datos del usuario.
   const encabezadoCaso = (
-    <div className="min-w-0">
+    <div className="min-w-0 border-l-4 border-[var(--atm-azul2)] pl-2">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-base font-semibold text-zinc-900">Propuesta de calificación</h1>
         {yaCalificado && (
           <>
             <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-              Calificado el {formatearFecha(caso.fechaCalificacion)} · {propuesta.porcentajeFinal}%
+              Calificado el {formatearFecha(caso.fechaCalificacion)}
+              {propuesta.porcentajeFinal !== null && ` · ${propuesta.porcentajeFinal}%`}
             </span>
             {propuesta.modificadoPorCalificador && (
               <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
@@ -81,141 +100,123 @@ export default function DetalleCasoPage() {
     </div>
   );
 
-  function abrirModificar() {
-    setModoModificar(true);
-  }
-
-  async function guardarModificacion() {
-    // El % lo edita el calificador en la casilla de CeroFilas; si no lo tocó (o escribió algo
-    // que no es un porcentaje válido), se mantiene el que propuso el motor de EES.
-    const valor = leerPorcentajeFinal(casoId) ?? propuesta.porcentajeIvadecIA;
-    const valoresEditados = leerValoresGuardados(casoId);
-    setGuardando(true);
-    setErrorGuardado(null);
+  async function manejarYaLoSubi() {
+    setSubiendoCerofilas(true);
     try {
-      // La ficha se guarda antes de calificar: si el % falla después, al menos las
-      // correcciones de texto que ya hizo el calificador quedan en la base.
-      if (valoresEditados) await guardarFicha(casoId, valoresEditados);
-      await modificarYCalificar(casoId, valor);
-      router.push("/calificador");
-    } catch {
-      setErrorGuardado("No se pudo guardar la calificación. Intenta de nuevo.");
-      setGuardando(false);
+      await marcarSubidoCerofilas(caso!.id);
+      router.push(rutaVolverCerofilas);
+    } finally {
+      setSubiendoCerofilas(false);
     }
   }
 
-  async function confirmar() {
-    setGuardando(true);
-    setErrorGuardado(null);
-    try {
-      await confirmarPropuesta(casoId);
-      router.push("/calificador");
-    } catch {
-      setErrorGuardado("No se pudo confirmar el caso. Intenta de nuevo.");
-      setGuardando(false);
-    }
+  if (mostrarPantallaCerofilas) {
+    return (
+      <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
+        <CalificadorHeader />
+        <main className="flex-1 px-6 py-6">
+          <div className="mx-auto max-w-[1100px]">
+            {caso.analisis ? (
+              <PantallaCerofilas
+                analisis={caso.analisis}
+                casoId={caso.id}
+                subiendo={subiendoCerofilas}
+                onYaLoSubi={manejarYaLoSubi}
+                onVolver={() => router.push(rutaVolverCerofilas)}
+                porcentajeFinal={propuesta.porcentajeFinal}
+                modificado={propuesta.modificadoPorCalificador}
+              />
+            ) : (
+              <div className="rounded-xl border border-[var(--atm-linea)] bg-white p-5">
+                <p className="text-sm text-zinc-500">
+                  Trámite {caso.idTramite} resuelto. No hay ficha QA para generar el texto de CeroFilas —
+                  revisa el trámite directo en CeroFilas.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.push(rutaVolverCerofilas)}
+                  className="mt-4 rounded-lg bg-[var(--atm-azul)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Volver a página principal
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-white">
+    <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
       <CalificadorHeader />
 
       <main className="flex-1 px-6 py-6">
-        <Link href={yaCalificado ? "/calificador/historico" : "/calificador"} className="text-sm text-zinc-500 hover:text-zinc-700">
-          ← Volver
-        </Link>
+        <div className="mx-auto max-w-[1100px]">
+          <Link href={yaCalificado ? "/calificador/historico" : "/calificador"} className="text-sm text-zinc-500 hover:text-zinc-700">
+            ← Volver
+          </Link>
+        </div>
 
-        <div className="mt-4 max-w-3xl rounded-xl border border-zinc-200">
-          {caso.analisis ? (
-            <FichaEditable
-              analisis={caso.analisis}
-              casoId={caso.id}
-              editable={modoModificar && !yaCalificado}
-              encabezadoCaso={encabezadoCaso}
-            />
-          ) : (
-            <>
-              <div className="border-b border-zinc-200 px-5 py-4">{encabezadoCaso}</div>
-              <div className="border-b border-zinc-200 px-5 py-4 text-sm">
-                <p className="mb-1 text-zinc-400">Fundamento</p>
-                <p className="text-zinc-700">
-                  {propuesta.fundamento || "Sin ficha QA disponible para este trámite."}
-                </p>
-              </div>
-            </>
-          )}
+        <div className="mx-auto mt-4 flex max-w-[1100px] flex-col gap-4">
+          {/* A. Identificación del trámite + B/C/E lo trae FichaEditable por bloques */}
+          <div className="rounded-xl border border-[var(--atm-linea)] bg-white">
+            {caso.analisis ? (
+              <FichaEditable
+                analisis={caso.analisis}
+                casoId={caso.id}
+                editable={caja === "modificar" && !yaCalificado}
+                encabezadoCaso={encabezadoCaso}
+                documentos={propuesta.documentos}
+              />
+            ) : (
+              <>
+                <div className="border-b border-[var(--atm-linea)] px-5 py-4">{encabezadoCaso}</div>
+                <div className="border-b border-[var(--atm-linea)] px-5 py-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--atm-gris)]">
+                    Documentos del expediente
+                  </p>
+                  <DocumentosExpediente documentos={propuesta.documentos} />
+                </div>
+                <div className="border-b border-[var(--atm-linea)] px-5 py-4 text-sm">
+                  <p className="mb-1 text-zinc-400">Fundamento</p>
+                  <p className="text-zinc-700">
+                    {propuesta.fundamento || "Sin ficha QA disponible para este trámite."}
+                  </p>
+                </div>
+              </>
+            )}
 
-          {propuesta.documentos.length > 0 && (
-            <div className="border-t border-zinc-200 px-5 py-4">
-              <p className="mb-2 text-sm text-zinc-400">Documentos</p>
-              <ul className="flex flex-col gap-1 text-sm">
-                {propuesta.documentos.map((doc) => (
-                  <li key={doc.tipo}>
-                    <a
-                      href={doc.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-zinc-900 underline"
-                    >
-                      {doc.tipo}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
 
-          {errorGuardado && (
-            <p className="border-t border-zinc-200 bg-red-50 px-5 py-2 text-sm text-red-600">{errorGuardado}</p>
-          )}
-
-          {!yaCalificado && !modoModificar && (
-            <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-zinc-200 bg-white px-5 py-4">
-              <p className="text-xs text-zinc-400">
-                Ficha en solo lectura. Usa &quot;Modificar&quot; para corregir campos.
+            {caja === "modificar" && !yaCalificado && (
+              <p className="border-t border-[var(--atm-linea)] bg-blue-50 px-5 py-2 text-xs text-[var(--atm-azul)]">
+                Edición activa. Los cambios se guardan al confirmar la resolución en
+                &quot;Guardar resolución&quot;, más abajo.
               </p>
-              <div className="flex gap-2">
-              <button
-                onClick={abrirModificar}
-                disabled={guardando}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                Modificar
-              </button>
-              <button
-                onClick={confirmar}
-                disabled={guardando}
-                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-              >
-                {guardando ? "Confirmando..." : "Confirmar propuesta"}
-              </button>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {!yaCalificado && modoModificar && (
-            <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-zinc-200 bg-white px-5 py-4">
-              <p className="text-xs text-zinc-500">
-                El % final se toma del campo <span className="font-medium">Porcentaje de discapacidad</span>{" "}
-                de la casilla &quot;Copiar y pegar en CeroFilas&quot;.
-              </p>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  onClick={() => setModoModificar(false)}
-                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={guardarModificacion}
-                  disabled={guardando}
-                  className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  {guardando ? "Guardando..." : "Guardar y calificar"}
-                </button>
-              </div>
-            </div>
-          )}
+          {/* D. Propuesta del motor — tabla comparativa IVADEC vs Motor (vs Calificador si ya resuelto) */}
+          <div className="rounded-xl border border-[var(--atm-linea)] bg-white px-5 py-4">
+            <h2 className="mb-3 border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
+              Propuesta del motor
+            </h2>
+            <TablaComparativaIdis caso={caso} />
+          </div>
+
+          {/* F. Tu resolución */}
+          <div className="rounded-xl border border-[var(--atm-linea)] bg-white">
+            {yaCalificado ? (
+              <ResolucionRegistrada caso={caso} />
+            ) : (
+              <PanelResolucion
+                caso={caso}
+                caja={caja}
+                setCaja={setCaja}
+                onResuelto={() => setMostrarCerofilas(true)}
+              />
+            )}
+          </div>
         </div>
       </main>
     </div>

@@ -1,10 +1,12 @@
-// PALANTIR v1.0.0 — GET /api/casos/[id]
+// PALANTIR v1.1.0 — GET /api/casos/[id]
 // Detalle de un caso puntual. A diferencia de /api/casos (lista completa), acá se resuelve
 // bajo demanda: si el caso no tiene todavía el analysis.json real del bot (`analysis_json`
 // sin `checklist_admisibilidad_rm`) pero sí tiene `json_resultado_url` (el link de Drive que
 // dejó el bot), lo va a buscar a Drive UNA vez, lo guarda en `casos.analysis_json`
-// (cache-on-read) y ya no vuelve a pedirlo. Requiere sesión; CALIFICADOR solo puede ver un
-// caso si es el asignado y no es NO_APTO (403 si no).
+// (cache-on-read) y ya no vuelve a pedirlo. También trae los links de `documentos_caso`
+// (tabla 1:N, tipo + link_drive — sin nombre de archivo, solo el link) y los deja en
+// `propuesta.documentos`. Requiere sesión; CALIFICADOR solo puede ver un caso si es el
+// asignado y no es NO_APTO (403 si no).
 
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
@@ -40,5 +42,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
   }
 
-  return NextResponse.json(mapearFila(fila));
+  const { rows: filasDocumentos } = await pool.query<{ tipo: string; link_drive: string }>(
+    `SELECT tipo, link_drive FROM documentos_caso WHERE caso_id = $1 ORDER BY tipo`,
+    [id]
+  );
+
+  const caso = mapearFila(fila);
+  caso.propuesta.documentos = filasDocumentos.map((d) => ({ tipo: d.tipo, link: d.link_drive }));
+
+  return NextResponse.json(caso);
 }

@@ -16,11 +16,11 @@ export function Modal({ titulo, onCerrar, children, ancho = "md", sinPadding = f
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
       <div
-        className={`flex max-h-full w-full flex-col rounded-xl border border-zinc-200 bg-white shadow-lg ${
+        className={`flex max-h-full w-full flex-col rounded-xl border border-[var(--atm-linea)] bg-white shadow-lg ${
           ancho === "xl" ? "max-w-3xl" : "max-w-md"
         }`}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--atm-linea)] px-5 py-3">
           <h2 className="text-sm font-semibold text-zinc-900">{titulo}</h2>
           <button
             onClick={onCerrar}

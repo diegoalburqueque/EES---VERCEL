@@ -3,6 +3,20 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Paleta ATM (referencia visual de Cristóbal/jefe) — usar SIEMPRE estos tokens en vez de
+     hardcodear hex sueltos, así el look queda consistente entre calificador y admin. */
+  --atm-azul: #173a78;
+  --atm-azul2: #2878e5;
+  --atm-tinta: #172033;
+  --atm-gris: #64748b;
+  --atm-linea: #cbd5e1;
+  --atm-fondo: #f1f5f9;
+  --atm-panel: #ffffff;
+  --atm-ok: #166534;
+  --atm-obs: #9a3412;
+  --atm-mal: #991b1b;
+  --atm-th: #1e293b;
 }
 
 @theme inline {

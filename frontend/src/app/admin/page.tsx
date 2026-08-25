@@ -6,6 +6,8 @@ import { type Caso, type EstadoChecklist } from "@/data/casos";
 import { type Usuario } from "@/data/usuarios";
 import { Modal } from "@/components/Modal";
 import { FichaEditable } from "@/components/FichaEditable";
+import { DocumentosExpediente } from "@/components/DocumentosExpediente";
+import { TablaComparativaIdis, ResolucionRegistrada } from "@/components/ResolucionCalificador";
 
 const badgeEstado: Record<EstadoChecklist, string> = {
   APTO: "bg-emerald-50 text-emerald-700",
@@ -19,8 +21,16 @@ const labelEstado: Record<EstadoChecklist, string> = {
   NO_APTO: "No apto",
 };
 
-type Vista = "dashboard" | "todos" | "no-aptos" | "calificadores";
-type FiltroEstadoAdmin = "TODOS" | EstadoChecklist;
+/** `RECHAZADO_CALIFICADOR` es el estado que reutilizamos para "el calificador declaró el caso
+ *  no evaluable" (ver Revisión 10) — el admin lo ve como "DEVUELTO", mismo texto que ya usa el
+ *  calificador en su histórico, en vez del nombre técnico crudo de la fila de `estados_caso`. */
+function etiquetaFlujo(estadoCaso: string): string {
+  if (estadoCaso === "RECHAZADO_CALIFICADOR") return "DEVUELTO";
+  return estadoCaso.replace(/_/g, " ");
+}
+
+type Vista = "dashboard" | "todos" | "no-aptos" | "devueltos" | "calificadores";
+type FiltroEstadoAdmin = "TODOS" | EstadoChecklist | "DEVUELTO";
 type TamanoPagina = 20 | 50 | "TODOS";
 
 const OPCIONES_PAGINA: TamanoPagina[] = [20, 50, "TODOS"];
@@ -28,7 +38,7 @@ const OPCIONES_PAGINA: TamanoPagina[] = [20, 50, "TODOS"];
 /** Tarjeta compacta de una métrica: número grande + etiqueta, mismo patrón en todo el dashboard. */
 function Tarjeta({ valor, etiqueta }: { valor: string | number; etiqueta: string }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+    <div className="rounded-xl border border-[var(--atm-linea)] bg-zinc-50 px-4 py-3">
       <p className="text-2xl font-semibold text-zinc-900">{valor}</p>
       <p className="mt-0.5 text-xs text-zinc-500">{etiqueta}</p>
     </div>
@@ -240,13 +250,27 @@ export default function AdminPage() {
   }
 
   const [filtroEstadoAdmin, setFiltroEstadoAdmin] = useState<FiltroEstadoAdmin>("TODOS");
+  const [busquedaIdAdmin, setBusquedaIdAdmin] = useState("");
   const [tamanoPaginaAdmin, setTamanoPaginaAdmin] = useState<TamanoPagina>(20);
   const [paginaAdmin, setPaginaAdmin] = useState(1);
 
   const casosVisibles = useMemo(() => {
-    const base = vista === "no-aptos" ? casos.filter((c) => c.estadoChecklist === "NO_APTO") : casos;
-    return filtroEstadoAdmin === "TODOS" ? base : base.filter((c) => c.estadoChecklist === filtroEstadoAdmin);
-  }, [casos, vista, filtroEstadoAdmin]);
+    const base =
+      vista === "no-aptos"
+        ? casos.filter((c) => c.estadoChecklist === "NO_APTO")
+        : vista === "devueltos"
+          ? casos.filter((c) => c.estadoCaso === "RECHAZADO_CALIFICADOR")
+          : casos;
+    const porEstado =
+      filtroEstadoAdmin === "TODOS"
+        ? base
+        : filtroEstadoAdmin === "DEVUELTO"
+          ? base.filter((c) => c.estadoCaso === "RECHAZADO_CALIFICADOR")
+          : base.filter((c) => c.estadoChecklist === filtroEstadoAdmin);
+    return busquedaIdAdmin.trim()
+      ? porEstado.filter((c) => c.idTramite.includes(busquedaIdAdmin.trim()))
+      : porEstado;
+  }, [casos, vista, filtroEstadoAdmin, busquedaIdAdmin]);
 
   const totalPaginasAdmin =
     tamanoPaginaAdmin === "TODOS" ? 1 : Math.max(1, Math.ceil(casosVisibles.length / tamanoPaginaAdmin));
@@ -268,6 +292,11 @@ export default function AdminPage() {
     setPaginaAdmin(1);
   }
 
+  function cambiarBusquedaIdAdmin(nuevo: string) {
+    setBusquedaIdAdmin(nuevo);
+    setPaginaAdmin(1);
+  }
+
   function cambiarTamanoPaginaAdmin(nuevo: TamanoPagina) {
     setTamanoPaginaAdmin(nuevo);
     setPaginaAdmin(1);
@@ -282,7 +311,8 @@ export default function AdminPage() {
     const confirmados = calificados.length - modificados.length;
 
     const diferencias = modificados
-      .map((c) => (c.propuesta.porcentajeFinal ?? 0) - c.propuesta.porcentajeIvadecIA)
+      .filter((c) => c.propuesta.porcentajeIvadecIA !== null)
+      .map((c) => (c.propuesta.porcentajeFinal ?? 0) - (c.propuesta.porcentajeIvadecIA as number))
       .filter((d) => Number.isFinite(d));
     const diferenciaPromedio =
       diferencias.length > 0 ? diferencias.reduce((a, b) => a + b, 0) / diferencias.length : 0;
@@ -323,8 +353,8 @@ export default function AdminPage() {
   // (POST/PATCH /api/usuarios). Hasta entonces la pestaña es de sólo lectura: escribir en
   // memoria daría la impresión de haber guardado algo que la base nunca recibió.
   return (
-    <div className="flex flex-1 flex-col bg-white">
-      <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+    <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
+      <header className="flex items-center justify-between border-b border-[var(--atm-linea)] px-6 py-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-900">Panel administrador</h1>
           <p className="text-sm text-zinc-500">{sesion.nombreCompleto} · Admin</p>
@@ -337,12 +367,13 @@ export default function AdminPage() {
         </button>
       </header>
 
-      <nav className="flex gap-1 border-b border-zinc-200 px-6 pt-3">
+      <nav className="flex gap-1 border-b border-[var(--atm-linea)] px-6 pt-3">
         {(
           [
             ["dashboard", "Dashboard"],
             ["todos", "Todos los casos"],
             ["no-aptos", "No aptos"],
+            ["devueltos", "Devueltos"],
             ["calificadores", "Calificadores"],
           ] as [Vista, string][]
         ).map(([valor, etiqueta]) => (
@@ -416,9 +447,9 @@ export default function AdminPage() {
                 {metricas.rankingCalificadores.length === 0 ? (
                   <p className="text-sm text-zinc-400">Todavía no hay casos asignados.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-zinc-200">
+                  <div className="overflow-hidden rounded-xl border border-[var(--atm-linea)]">
                     <table className="w-full text-left text-sm">
-                      <thead className="bg-zinc-50 text-zinc-500">
+                      <thead className="bg-[var(--atm-th)] text-white">
                         <tr>
                           <th className="px-4 py-2 font-medium">Calificador</th>
                           <th className="px-4 py-2 font-medium">Asignados</th>
@@ -462,9 +493,9 @@ export default function AdminPage() {
               <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{errorUsuarios}</p>
             )}
 
-            <div className="overflow-hidden rounded-xl border border-zinc-200">
+            <div className="overflow-hidden rounded-xl border border-[var(--atm-linea)]">
               <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-zinc-500">
+                <thead className="bg-[var(--atm-th)] text-white">
                   <tr>
                     <th className="px-4 py-2 font-medium">Nombre</th>
                     <th className="px-4 py-2 font-medium">Correo</th>
@@ -522,7 +553,7 @@ export default function AdminPage() {
                   )}
                 </tbody>
               </table>
-              <p className="border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-xs text-zinc-400">
+              <p className="border-t border-[var(--atm-linea)] bg-zinc-50 px-4 py-2 text-xs text-zinc-400">
                 Un calificador nunca se elimina de la base de datos, sólo se desactiva.
               </p>
             </div>
@@ -539,18 +570,29 @@ export default function AdminPage() {
             </h2>
 
             <div className="flex items-center gap-3 text-sm">
+              <label className="flex items-center gap-1.5 text-zinc-500">
+                Buscar ID
+                <input
+                  type="text"
+                  value={busquedaIdAdmin}
+                  onChange={(e) => cambiarBusquedaIdAdmin(e.target.value)}
+                  placeholder="ID Trámite"
+                  className="w-32 rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700 outline-none focus:border-[var(--atm-azul2)]"
+                />
+              </label>
               {vista === "todos" && (
                 <label className="flex items-center gap-1.5 text-zinc-500">
                   Estado
                   <select
                     value={filtroEstadoAdmin}
                     onChange={(e) => cambiarFiltroEstadoAdmin(e.target.value as FiltroEstadoAdmin)}
-                    className="rounded-lg border border-zinc-300 px-2 py-1 text-zinc-700 outline-none focus:border-zinc-900"
+                    className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700 outline-none focus:border-[var(--atm-azul2)]"
                   >
                     <option value="TODOS">Todos</option>
                     <option value="APTO">Apto</option>
                     <option value="REQUIERE_REVISION">Requiere revisión</option>
                     <option value="NO_APTO">No apto</option>
+                    <option value="DEVUELTO">Devuelto</option>
                   </select>
                 </label>
               )}
@@ -563,7 +605,7 @@ export default function AdminPage() {
                       e.target.value === "TODOS" ? "TODOS" : (Number(e.target.value) as TamanoPagina)
                     )
                   }
-                  className="rounded-lg border border-zinc-300 px-2 py-1 text-zinc-700 outline-none focus:border-zinc-900"
+                  className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700 outline-none focus:border-[var(--atm-azul2)]"
                 >
                   {OPCIONES_PAGINA.map((opcion) => (
                     <option key={opcion} value={opcion}>
@@ -575,9 +617,9 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-zinc-200">
+          <div className="overflow-hidden rounded-xl border border-[var(--atm-linea)]">
             <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-zinc-500">
+              <thead className="bg-[var(--atm-th)] text-white">
                 <tr>
                   <th className="px-4 py-2 font-medium">ID Trámite</th>
                   <th className="px-4 py-2 font-medium">Región</th>
@@ -604,14 +646,16 @@ export default function AdminPage() {
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          c.estadoCalificacion === "CALIFICADO"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-zinc-100 text-zinc-600"
+                          c.estadoCaso === "RECHAZADO_CALIFICADOR"
+                            ? "bg-pink-100 text-pink-700"
+                            : c.estadoCalificacion === "CALIFICADO"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-zinc-100 text-zinc-600"
                         }`}
                       >
-                        {c.estadoCaso.replace(/_/g, " ")}
+                        {etiquetaFlujo(c.estadoCaso)}
                       </span>
-                      {c.estadoCalificacion === "CALIFICADO" && (
+                      {c.propuesta.porcentajeFinal !== null && (
                         <p className="mt-1 text-xs text-zinc-500">
                           {c.propuesta.porcentajeFinal}%
                           {c.propuesta.modificadoPorCalificador ? " (modificado)" : " (confirmado)"}
@@ -677,7 +721,7 @@ export default function AdminPage() {
           ancho="xl"
           sinPadding
         >
-          <div className="grid gap-4 border-b border-zinc-200 px-5 py-4 text-sm sm:grid-cols-2">
+          <div className="grid gap-4 border-b border-[var(--atm-linea)] px-5 py-4 text-sm sm:grid-cols-2">
             <div>
               <p className="text-xs text-zinc-400">RUT</p>
               <p className="text-zinc-800">{casoAVer.rut}</p>
@@ -692,7 +736,7 @@ export default function AdminPage() {
             </div>
             <div>
               <p className="text-xs text-zinc-400">Estado del flujo</p>
-              <p className="text-zinc-800">{casoAVer.estadoCaso.replace(/_/g, " ")}</p>
+              <p className="text-zinc-800">{etiquetaFlujo(casoAVer.estadoCaso)}</p>
             </div>
             <div>
               <p className="text-xs text-zinc-400">% propuesto por el motor</p>
@@ -711,17 +755,35 @@ export default function AdminPage() {
           </div>
 
           {casoAVer.estadoChecklist === "NO_APTO" && (
-            <div className="border-b border-zinc-200 bg-red-50 px-5 py-3 text-sm text-red-700">
+            <div className="border-b border-[var(--atm-linea)] bg-red-50 px-5 py-3 text-sm text-red-700">
               Caso NO APTO — visible solo para administración. El calificador no lo ve en ninguna vista.
             </div>
           )}
 
+          <div className="border-b border-[var(--atm-linea)] px-5 py-4">
+            <h2 className="mb-3 border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
+              Propuesta del motor
+            </h2>
+            <TablaComparativaIdis caso={casoAVer} />
+          </div>
+
+          {casoAVer.resolucion && <ResolucionRegistrada caso={casoAVer} />}
+
           {casoAVer.analisis ? (
-            <FichaEditable analisis={casoAVer.analisis} casoId={casoAVer.id} editable={false} />
+            <FichaEditable
+              analisis={casoAVer.analisis}
+              casoId={casoAVer.id}
+              editable={false}
+              documentos={casoAVer.propuesta.documentos}
+            />
           ) : (
-            <p className="px-5 py-4 text-sm text-zinc-500">
-              Todavía no hay ficha QA cargada para este trámite.
-            </p>
+            <div className="px-5 py-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--atm-gris)]">
+                Documentos del expediente
+              </p>
+              <DocumentosExpediente documentos={casoAVer.propuesta.documentos} />
+              <p className="mt-4 text-sm text-zinc-500">Todavía no hay ficha QA cargada para este trámite.</p>
+            </div>
           )}
         </Modal>
       )}

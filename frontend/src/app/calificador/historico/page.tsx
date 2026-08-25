@@ -15,7 +15,7 @@ export default function HistoricoPage() {
     .sort((a, b) => (b.fechaCalificacion ?? "").localeCompare(a.fechaCalificacion ?? ""));
 
   return (
-    <div className="flex flex-1 flex-col bg-white">
+    <div className="flex flex-1 flex-col bg-[var(--atm-fondo)]">
       <CalificadorHeader />
 
       <main className="flex-1 px-6 py-6">
@@ -29,15 +29,15 @@ export default function HistoricoPage() {
         ) : misCasosCalificados.length === 0 ? (
           <p className="text-sm text-zinc-500">Aún no has calificado ningún caso.</p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-zinc-200">
+          <div className="overflow-hidden rounded-xl border border-[var(--atm-linea)]">
             <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-zinc-500">
+              <thead className="bg-[var(--atm-th)] text-white">
                 <tr>
                   <th className="px-4 py-2 font-medium">ID Trámite</th>
                   <th className="px-4 py-2 font-medium">Nombre</th>
-                  <th className="px-4 py-2 font-medium">% IVADEC final</th>
-                  <th className="px-4 py-2 font-medium">Modificado</th>
-                  <th className="px-4 py-2 font-medium">Fecha calificación</th>
+                  <th className="px-4 py-2 font-medium">Resolución</th>
+                  <th className="px-4 py-2 font-medium">% final</th>
+                  <th className="px-4 py-2 font-medium">Fecha</th>
                   <th className="px-4 py-2 font-medium">Acciones</th>
                 </tr>
               </thead>
@@ -46,24 +46,43 @@ export default function HistoricoPage() {
                   <tr key={c.id}>
                     <td className="px-4 py-3 font-mono text-zinc-700">{c.idTramite}</td>
                     <td className="px-4 py-3 text-zinc-700">{c.nombreCompleto}</td>
-                    <td className="px-4 py-3 text-zinc-700">{c.propuesta.porcentajeFinal}%</td>
                     <td className="px-4 py-3">
-                      {c.propuesta.modificadoPorCalificador ? (
+                      {c.resolucion?.decision === "NO_EVALUABLE" ? (
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                          Devuelto
+                        </span>
+                      ) : c.propuesta.modificadoPorCalificador ? (
                         <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                          Sí
+                          Modificado
                         </span>
                       ) : (
-                        <span className="text-xs text-zinc-400">No</span>
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          Ratificado
+                        </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-700">
+                      {c.propuesta.porcentajeFinal !== null ? `${c.propuesta.porcentajeFinal}%` : "—"}
                     </td>
                     <td className="px-4 py-3 text-zinc-500">{formatearFecha(c.fechaCalificacion)}</td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/calificador/casos/${c.id}`}
-                        className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Ver
-                      </Link>
+                      <div className="flex gap-2">
+                        <Link
+                          href={`/calificador/casos/${c.id}`}
+                          className="rounded-lg border border-[var(--atm-azul2)] px-2.5 py-1 text-xs font-medium text-[var(--atm-azul)] hover:bg-blue-50"
+                        >
+                          Ver
+                        </Link>
+                        {/* No evaluable no emite documento, no hay nada que pegar en CeroFilas. */}
+                        {c.resolucion?.decision !== "NO_EVALUABLE" && (
+                          <Link
+                            href={`/calificador/casos/${c.id}?cerofilas=1`}
+                            className="rounded-lg border border-[var(--atm-linea)] px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Ver CeroFilas
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

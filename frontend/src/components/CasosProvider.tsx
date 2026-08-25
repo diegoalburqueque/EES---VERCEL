@@ -1,14 +1,33 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Caso } from "@/data/casos";
+import type { Caso, ReevaluacionFinal } from "@/data/casos";
+
+interface DatosModificar {
+  porcentajeFinal: number;
+  motivoCodigo: string;
+  fundamento: string;
+  mr?: boolean;
+  reev?: ReevaluacionFinal;
+}
+
+interface DatosNoEvaluable {
+  causaCodigo: string;
+  detalle: string;
+}
 
 interface CasosContexto {
   casos: Caso[];
   cargando: boolean;
   error: string | null;
-  confirmarPropuesta: (id: string) => Promise<void>;
-  modificarYCalificar: (id: string, porcentajeFinal: number) => Promise<void>;
+  /** Ratificar propuesta: usa el % del motor tal cual. mr/reev son lo que eligió el calificador. */
+  confirmarPropuesta: (id: string, mr?: boolean, reev?: ReevaluacionFinal) => Promise<void>;
+  /** Modificar propuesta: % debe ser un valor oficial de la tabla IDIS, motivo + fundamento obligatorios. */
+  modificarYCalificar: (id: string, datos: DatosModificar) => Promise<void>;
+  /** El caso no se puede evaluar: causa + detalle obligatorios, no es un rechazo clínico. */
+  declararNoEvaluable: (id: string, datos: DatosNoEvaluable) => Promise<void>;
+  /** Botón "Ya lo subí" — independiente de la resolución, puramente informativo. */
+  marcarSubidoCerofilas: (id: string) => Promise<void>;
   /** Persiste la ficha editada en `casos.ficha_editada` (ver /api/casos/[id]/ficha). */
   guardarFicha: (id: string, valores: Record<string, string>) => Promise<void>;
   recargar: () => Promise<void>;
@@ -48,19 +67,45 @@ export function CasosProvider({ children }: { children: ReactNode }) {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  async function confirmarPropuesta(id: string) {
-    const respuesta = await fetch(`/api/casos/${id}/confirmar`, { method: "POST" });
-    if (!respuesta.ok) throw new Error("No se pudo confirmar el caso.");
+  async function confirmarPropuesta(id: string, mr?: boolean, reev?: ReevaluacionFinal) {
+    const respuesta = await fetch(`/api/casos/${id}/confirmar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mr, reev }),
+    });
+    if (!respuesta.ok) throw new Error("No se pudo ratificar el caso.");
     await recargar();
   }
 
-  async function modificarYCalificar(id: string, porcentajeFinal: number) {
+  async function modificarYCalificar(id: string, datos: DatosModificar) {
     const respuesta = await fetch(`/api/casos/${id}/modificar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ porcentajeFinal }),
+      body: JSON.stringify(datos),
     });
-    if (!respuesta.ok) throw new Error("No se pudo guardar la calificación.");
+    if (!respuesta.ok) {
+      const cuerpo = await respuesta.json().catch(() => null);
+      throw new Error(cuerpo?.error ?? "No se pudo guardar la calificación.");
+    }
+    await recargar();
+  }
+
+  async function declararNoEvaluable(id: string, datos: DatosNoEvaluable) {
+    const respuesta = await fetch(`/api/casos/${id}/no-evaluable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    if (!respuesta.ok) {
+      const cuerpo = await respuesta.json().catch(() => null);
+      throw new Error(cuerpo?.error ?? "No se pudo declarar el caso no evaluable.");
+    }
+    await recargar();
+  }
+
+  async function marcarSubidoCerofilas(id: string) {
+    const respuesta = await fetch(`/api/casos/${id}/marcar-subido-cerofilas`, { method: "POST" });
+    if (!respuesta.ok) throw new Error("No se pudo marcar como subido.");
     await recargar();
   }
 
@@ -85,7 +130,18 @@ export function CasosProvider({ children }: { children: ReactNode }) {
 
   return (
     <Contexto.Provider
-      value={{ casos, cargando, error, confirmarPropuesta, modificarYCalificar, guardarFicha, recargar, cargarDetalleCaso }}
+      value={{
+        casos,
+        cargando,
+        error,
+        confirmarPropuesta,
+        modificarYCalificar,
+        declararNoEvaluable,
+        marcarSubidoCerofilas,
+        guardarFicha,
+        recargar,
+        cargarDetalleCaso,
+      }}
     >
       {children}
     </Contexto.Provider>

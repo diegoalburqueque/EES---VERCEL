@@ -1,7 +1,8 @@
 import "server-only";
-import type { Caso, ChecklistItem } from "@/data/casos";
+import type { Caso, ChecklistItem, Decision, Direccion, ReevaluacionFinal } from "@/data/casos";
 import type { AnalisisQA } from "@/data/analisis";
 import { aFechaISO } from "@/lib/fechas";
+import { resolverComparativaIdis } from "@/lib/comparativa-idis";
 
 export interface FilaCaso {
   id: string;
@@ -57,6 +58,28 @@ export interface FilaCaso {
   cal_porcentaje_final: string | null;
   cal_modificado: boolean | null;
   cal_fecha: Date | string | null;
+
+  // Comparación IVADEC vs Motor (tabla comparativa del panel "Propuesta del motor")
+  porcentaje_ivadec_documento: string | null; // % que trae el documento IVADEC físico, distinto de porcentaje_propuesto_ia
+  valid_idis_tabla: string | null;
+  valid_grado_tabla: string | null;
+  calif_idis: string | null;
+  calif_grado_discapacidad: string | null;
+
+  // "Ya lo subí" — independiente de la resolución
+  subido_cerofilas: boolean;
+  subido_cerofilas_en: Date | string | null;
+
+  // Resolución estructurada (calificaciones_finales, Revisión 10)
+  cal_decision: Decision | null;
+  cal_idis_final: string | null;
+  cal_grado_final: string | null;
+  cal_direccion: Direccion | null;
+  cal_mr_final: boolean | null;
+  cal_reev_final: ReevaluacionFinal | null;
+  cal_motivo_codigo: string | null;
+  cal_causa_codigo: string | null;
+  cal_explicacion: string | null;
 }
 
 /** Columnas que necesitan mapearFila / construirAnalisisSintetico. Compartidas entre el
@@ -83,7 +106,21 @@ export const SELECT_CASO = `
     ec.nombre AS estado_caso,
     cf.porcentaje_final AS cal_porcentaje_final,
     cf.modificado_por_calificador AS cal_modificado,
-    cf.fecha_calificacion AS cal_fecha
+    cf.fecha_calificacion AS cal_fecha,
+
+    c.porcentaje_ivadec_documento, c.valid_idis_tabla, c.valid_grado_tabla,
+    c.calif_idis, c.calif_grado_discapacidad,
+    c.subido_cerofilas, c.subido_cerofilas_en,
+
+    cf.decision AS cal_decision,
+    cf.idis_final AS cal_idis_final,
+    cf.grado_final AS cal_grado_final,
+    cf.direccion AS cal_direccion,
+    cf.mr_final AS cal_mr_final,
+    cf.reev_final AS cal_reev_final,
+    cf.motivo_codigo AS cal_motivo_codigo,
+    cf.causa_codigo AS cal_causa_codigo,
+    cf.explicacion AS cal_explicacion
 `;
 
 export const SELECT_BASE = `
@@ -272,6 +309,11 @@ export function mapearFila(fila: FilaCaso): Caso {
     : fila.estado_checklist
       ? construirAnalisisSintetico(fila)
       : null;
+
+  // analysis_json real (o la ficha sintética) manda sobre las columnas planas — evita el bug
+  // de "0%"/"No disponible" cuando el bot no llegó a parsear esas columnas.
+  const comparativa = resolverComparativaIdis(analisis, fila);
+
   return {
     analisis,
     id: fila.id,
@@ -281,15 +323,39 @@ export function mapearFila(fila: FilaCaso): Caso {
     nombreCompleto: fila.nombre_completo,
     estadoChecklist: fila.estado_checklist,
     estadoCaso: fila.estado_caso,
-    estadoCalificacion: fila.cal_porcentaje_final !== null ? "CALIFICADO" : "PENDIENTE",
+    // Desde la Revisión 10 un caso NO_EVALUABLE también tiene fila en calificaciones_finales
+    // pero sin porcentaje_final — "calificado" se define por la existencia de una decisión,
+    // no por el porcentaje.
+    estadoCalificacion: fila.cal_decision !== null ? "CALIFICADO" : "PENDIENTE",
     calificadorAsignadoId: fila.calificador_asignado_id,
     calificadorNombre: fila.calificador_nombre,
     fechaAsignacion: aFechaISO(fila.fecha_asignacion),
     fechaCalificacion: fila.cal_fecha ? aFechaISO(fila.cal_fecha) : null,
+    porcentajeIvadecDocumento: comparativa.porcentajeIvadecDocumento,
+    idisIvadec: comparativa.idisIvadec,
+    gradoIvadec: comparativa.gradoIvadec,
+    idisMotor: comparativa.idisMotor,
+    gradoMotor: comparativa.gradoMotor,
+    subidoCerofilas: fila.subido_cerofilas,
+    subidoCerofilasEn: fila.subido_cerofilas_en ? aFechaISO(fila.subido_cerofilas_en) : null,
+    resolucion:
+      fila.cal_decision === null
+        ? null
+        : {
+            decision: fila.cal_decision,
+            idisFinal: fila.cal_idis_final,
+            gradoFinal: fila.cal_grado_final,
+            direccion: fila.cal_direccion,
+            mrFinal: fila.cal_mr_final,
+            reevFinal: fila.cal_reev_final,
+            motivoCodigo: fila.cal_motivo_codigo,
+            causaCodigo: fila.cal_causa_codigo,
+            explicacion: fila.cal_explicacion,
+          },
     propuesta: {
       diagnosticoPrincipal: fila.calif_diagnostico_principal ?? "",
       diagnosticoSecundario: fila.calif_diagnosticos_secundarios,
-      porcentajeIvadecIA: fila.porcentaje_propuesto_ia ? Number(fila.porcentaje_propuesto_ia) : 0,
+      porcentajeIvadecIA: comparativa.porcentajeMotor,
       porcentajeFinal: fila.cal_porcentaje_final ? Number(fila.cal_porcentaje_final) : null,
       fundamento: fila.prop_fundamento_breve ?? "",
       modificadoPorCalificador: fila.cal_modificado ?? false,

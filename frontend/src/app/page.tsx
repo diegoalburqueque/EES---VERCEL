@@ -36,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-white px-4">
+    <div className="flex flex-1 items-center justify-center bg-[var(--atm-fondo)] px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-xl font-semibold text-zinc-900">Grupo EES</h1>
@@ -48,10 +48,10 @@ export default function LoginPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-6"
+          className="flex flex-col gap-4 rounded-xl border border-[var(--atm-linea)] bg-white p-6 shadow-sm"
         >
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="correo" className="text-sm font-medium text-zinc-700">
+            <label htmlFor="correo" className="text-sm font-medium text-[var(--atm-gris)]">
               Correo
             </label>
             <input
@@ -62,12 +62,12 @@ export default function LoginPage() {
               value={correo}
               onChange={(e) => setCorreo(e.target.value)}
               placeholder="nombre@grupoees.cl"
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-900"
+              className="rounded-lg border border-[var(--atm-linea)] px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[var(--atm-azul2)]"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-sm font-medium text-zinc-700">
+            <label htmlFor="password" className="text-sm font-medium text-[var(--atm-gris)]">
               Contraseña
             </label>
             <input
@@ -78,7 +78,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-900"
+              className="rounded-lg border border-[var(--atm-linea)] px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[var(--atm-azul2)]"
             />
           </div>
 
@@ -91,7 +91,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={cargando}
-            className="mt-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+            className="mt-2 rounded-lg bg-[var(--atm-azul)] px-3 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {cargando ? "Ingresando..." : "Ingresar"}
           </button>

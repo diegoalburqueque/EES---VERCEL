@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { AnalisisQA } from "@/data/analisis";
+import type { DocumentoCaso } from "@/data/casos";
 import { GuiaClinicaIBF } from "@/components/GuiaClinicaIBF";
+import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 
 /**
  * Ficha de análisis en el formato que el calificador copia y pega.
@@ -20,6 +22,9 @@ interface Campo {
   valor: string;
   /** Campos largos se muestran como bloque de texto; los cortos, en una línea. */
   largo?: boolean;
+  /** Nunca editable, ni siquiera en modo edición — ej. el % que propuso el motor, que el
+   *  calificador corrige aparte con el select oficial de "Modificar propuesta", no acá. */
+  soloLectura?: boolean;
 }
 
 interface DatoReferencia {
@@ -94,6 +99,25 @@ const SIN_DATO = "";
 
 function texto(valor: string | null | undefined): string {
   return valor?.trim() ?? SIN_DATO;
+}
+
+/** El motor usa estos placeholders cuando no logró determinar un valor — para efectos de
+ *  "¿hay dato real?" cuentan como vacío, igual que "". */
+const PLACEHOLDERS_SIN_DATO = new Set(["NO_DETERMINADO", "NO DETERMINADO", "No consta en el expediente"]);
+
+function hayDato(valor: string): boolean {
+  return valor !== "" && !PLACEHOLDERS_SIN_DATO.has(valor);
+}
+
+/** `carga_cerofilas` es una sección aparte del JSON que el motor a veces deja con placeholders
+ *  aunque el mismo dato ya esté resuelto en otra sección (ej. `datos_calificacion`) — antes de
+ *  copiar y pegar en CeroFilas, usa el respaldo en vez del placeholder. */
+function conRespaldo(valor: string, ...respaldos: string[]): string {
+  if (hayDato(valor)) return valor;
+  for (const respaldo of respaldos) {
+    if (hayDato(respaldo)) return respaldo;
+  }
+  return valor;
 }
 
 function construirBloques(analisis: AnalisisQA): Bloque[] {
@@ -313,7 +337,12 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
           valor: cliente.observaciones_ivadec.join("\n"),
           largo: true,
         },
-        { id: "prop_porcentaje", etiqueta: "Porcentaje", valor: texto(propuestaIA.porcentaje_propuesto) },
+        {
+          id: "prop_porcentaje",
+          etiqueta: "Porcentaje (PROPUESTA MOTOR EES)",
+          valor: texto(propuestaIA.porcentaje_propuesto),
+          soloLectura: true,
+        },
         { id: "prop_origenes", etiqueta: "Orígenes", valor: origenesPropuestos, largo: true },
         {
           id: "prop_fundamento",
@@ -357,18 +386,22 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         {
           id: "cf_diagnostico_principal",
           etiqueta: "Diagnóstico Principal",
-          valor: texto(cerofilas.diagnostico_principal),
+          valor: conRespaldo(texto(cerofilas.diagnostico_principal), texto(calif.diagnostico_principal)),
           largo: true,
         },
         {
           id: "cf_origen_principal",
           etiqueta: "Origen Principal de Discapacidad",
-          valor: texto(cerofilas.origen_principal_discapacidad),
+          valor: conRespaldo(
+            texto(cerofilas.origen_principal_discapacidad),
+            texto(calif.origen_principal_discapacidad),
+            texto(propuestaIA.origen_principal_propuesto)
+          ),
         },
         {
           id: "cf_diagnosticos_secundarios",
           etiqueta: "Diagnósticos Secundarios (Opcional)",
-          valor: texto(cerofilas.diagnosticos_secundarios),
+          valor: conRespaldo(texto(cerofilas.diagnosticos_secundarios), texto(calif.diagnosticos_secundarios)),
           largo: true,
         },
         {
@@ -379,23 +412,33 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         {
           id: "cf_porcentaje",
           etiqueta: "Porcentaje de discapacidad",
-          valor: texto(cerofilas.porcentaje_de_discapacidad),
+          valor: conRespaldo(texto(cerofilas.porcentaje_de_discapacidad), texto(calif.porcentaje_discapacidad)),
         },
         {
           id: "cf_movilidad_reducida",
           etiqueta: "Movilidad Reducida",
-          valor: texto(cerofilas.movilidad_reducida),
+          valor: conRespaldo(
+            texto(cerofilas.movilidad_reducida),
+            texto(calif.movilidad_reducida),
+            texto(propuestaIA.movilidad_reducida_propuesta)
+          ),
         },
         {
           id: "cf_antecedentes",
           etiqueta: "Antecedentes Sociales Relevantes",
-          valor: texto(cerofilas.antecedentes_sociales_relevantes),
+          valor: conRespaldo(
+            texto(cerofilas.antecedentes_sociales_relevantes),
+            texto(calif.antecedentes_sociales_relevantes)
+          ),
           largo: true,
         },
         {
           id: "cf_observaciones",
           etiqueta: "Observaciones Datos Relevantes de Calificación",
-          valor: texto(cerofilas.observaciones_calificacion),
+          valor: conRespaldo(
+            texto(cerofilas.observaciones_calificacion),
+            texto(calif.observaciones_datos_relevantes_calificacion)
+          ),
           largo: true,
         },
       ],
@@ -460,9 +503,11 @@ function BotonCopiar({ obtenerTexto }: { obtenerTexto: () => string }) {
 const ESTILO_RESULTADO: Record<string, string> = {
   CUMPLE: "bg-emerald-50 text-emerald-700",
   COINCIDE: "bg-emerald-50 text-emerald-700",
+  COINCIDENCIA_TOTAL: "bg-emerald-50 text-emerald-700",
   CONCORDANTE_CON_IBF: "bg-emerald-50 text-emerald-700",
   NO_CUMPLE: "bg-red-50 text-red-700",
   NO_COINCIDE: "bg-red-50 text-red-700",
+  APORTA_DIAGNOSTICO_NUEVO: "bg-red-50 text-red-700",
   NO_VERIFICABLE: "bg-amber-50 text-amber-700",
   REQUIERE_REVISION: "bg-amber-50 text-amber-700",
   ALERTA: "bg-amber-50 text-amber-700",
@@ -483,11 +528,11 @@ function PanelReferencia({ datos }: { datos: DatoReferencia[] }) {
   if (visibles.length === 0) return null;
 
   return (
-    <details open className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50">
+    <details open className="mt-4 rounded-lg border border-[var(--atm-linea)] bg-zinc-50">
       <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-zinc-900 hover:text-zinc-700">
         Motor de EES — análisis de esta sección ({visibles.length}) ▾
       </summary>
-      <div className="flex flex-col gap-3 border-t border-zinc-200 px-3 py-3">
+      <div className="flex flex-col gap-3 border-t border-[var(--atm-linea)] px-3 py-3">
         {visibles.map((dato, i) => (
           <div key={i}>
             <div className="flex flex-wrap items-center gap-2">
@@ -554,6 +599,119 @@ function CampoEditable({
   );
 }
 
+/** Campo individual dentro de una celda de `TablaCamposCompacta` — sin label propio, la
+ *  etiqueta ya está en el `<th>` de la fila. */
+function CampoCompacto({
+  campo,
+  valor,
+  editable,
+  onCambiar,
+}: {
+  campo: Campo;
+  valor: string;
+  editable: boolean;
+  onCambiar: (nuevo: string) => void;
+}) {
+  if (!editable) {
+    return <span className="whitespace-pre-line text-zinc-800">{valor || "—"}</span>;
+  }
+  return campo.largo ? (
+    <textarea
+      value={valor}
+      rows={2}
+      onChange={(e) => onCambiar(e.target.value)}
+      className="w-full resize-y rounded border border-zinc-300 px-2 py-1 text-sm text-zinc-900 outline-none focus:border-zinc-900"
+    />
+  ) : (
+    <input
+      type="text"
+      value={valor}
+      onChange={(e) => onCambiar(e.target.value)}
+      className="w-full rounded border border-zinc-300 px-2 py-1 text-sm text-zinc-900 outline-none focus:border-zinc-900"
+    />
+  );
+}
+
+/** Agrupa campos de a 2 por fila (izquierda/derecha), salvo los `largo` que ocupan la fila
+ *  completa — mismo patrón visual que la tabla RUN/Origen del encabezado del caso. */
+function agruparCamposCompactos(campos: Campo[]): { izquierda: Campo; derecha?: Campo }[] {
+  const filas: { izquierda: Campo; derecha?: Campo }[] = [];
+  let pendiente: Campo | null = null;
+  for (const campo of campos) {
+    if (campo.largo) {
+      if (pendiente) {
+        filas.push({ izquierda: pendiente });
+        pendiente = null;
+      }
+      filas.push({ izquierda: campo });
+    } else if (pendiente) {
+      filas.push({ izquierda: pendiente, derecha: campo });
+      pendiente = null;
+    } else {
+      pendiente = campo;
+    }
+  }
+  if (pendiente) filas.push({ izquierda: pendiente });
+  return filas;
+}
+
+/** Tabla compacta de 2 columnas (etiqueta con fondo oscuro + valor) para "Datos del usuario" —
+ *  reemplaza el stack vertical de CampoEditable para que quepan todos los campos sin
+ *  ocupar tanto espacio. */
+function TablaCamposCompacta({
+  campos,
+  valores,
+  editable,
+  onCambiar,
+}: {
+  campos: Campo[];
+  valores: Record<string, string>;
+  editable: boolean;
+  onCambiar: (id: string, nuevo: string) => void;
+}) {
+  const filas = useMemo(() => agruparCamposCompactos(campos), [campos]);
+
+  return (
+    <table className="w-full border-collapse text-sm">
+      <tbody>
+        {filas.map((fila, i) => (
+          <tr key={i}>
+            <th className="w-1/5 border border-[var(--atm-linea)] bg-[var(--atm-th)] px-3 py-2 text-left font-medium text-white">
+              {fila.izquierda.etiqueta}
+            </th>
+            <td
+              className="border border-[var(--atm-linea)] px-3 py-2"
+              colSpan={fila.derecha ? 1 : 3}
+            >
+              <CampoCompacto
+                campo={fila.izquierda}
+                valor={valores[fila.izquierda.id] ?? fila.izquierda.valor}
+                editable={editable}
+                onCambiar={(nuevo) => onCambiar(fila.izquierda.id, nuevo)}
+              />
+            </td>
+            {fila.derecha && (
+              <>
+                <th className="w-1/5 border border-[var(--atm-linea)] bg-[var(--atm-th)] px-3 py-2 text-left font-medium text-white">
+                  {fila.derecha.etiqueta}
+                </th>
+                <td className="border border-[var(--atm-linea)] px-3 py-2">
+                  <CampoCompacto
+                    campo={fila.derecha}
+                    valor={valores[fila.derecha.id] ?? fila.derecha.valor}
+                    editable={editable}
+                    onCambiar={(nuevo) => onCambiar(fila.derecha!.id, nuevo)}
+                  />
+                </td>
+              </>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function Desplegable({
   titulo,
   resumen,
@@ -575,22 +733,22 @@ function Desplegable({
   encabezado?: React.ReactNode;
 }) {
   return (
-    <details open={abiertoPorDefecto} className="group border-b border-zinc-200 last:border-b-0">
+    <details open={abiertoPorDefecto} className="group border-b border-[var(--atm-linea)] last:border-b-0">
       <summary
         className={`flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 ${
           encabezado ? "bg-white py-4 hover:bg-zinc-50" : "bg-zinc-50 hover:bg-zinc-100"
         }`}
       >
         {encabezado ?? (
-          <div className="min-w-0">
-            <span className="text-sm font-bold text-zinc-900">{titulo}</span>
+          <div className="min-w-0 border-l-4 border-[var(--atm-azul2)] pl-2">
+            <span className="text-sm font-bold text-[var(--atm-azul)]">{titulo}</span>
             {resumen && <p className="truncate text-xs text-zinc-600">{resumen}</p>}
           </div>
         )}
         <div className="flex shrink-0 items-center gap-2">
           {encabezado && (
             <div className="text-right">
-              <span className="text-sm font-bold text-zinc-900">{titulo}</span>
+              <span className="text-sm font-bold text-[var(--atm-azul)]">{titulo}</span>
               {resumen && <p className="text-xs text-zinc-600">{resumen}</p>}
             </div>
           )}
@@ -610,12 +768,15 @@ export function FichaEditable({
   casoId,
   editable = true,
   encabezadoCaso,
+  documentos = [],
 }: {
   analisis: AnalisisQA;
   casoId: string;
   editable?: boolean;
   /** Título e identificación del caso: se funde con la casilla de datos del usuario. */
   encabezadoCaso?: React.ReactNode;
+  /** Links de `documentos_caso` — se muestran arriba, dentro de la casilla de datos del usuario. */
+  documentos?: DocumentoCaso[];
 }) {
   const bloques = useMemo(() => construirBloques(analisis), [analisis]);
 
@@ -682,7 +843,10 @@ export function FichaEditable({
 
   // La casilla de datos del usuario comparte barra con la cabecera del caso; el resto va debajo.
   const bloqueUsuario = bloques.find((b) => b.id === "datos_usuario");
-  const bloquesRestantes = bloques.filter((b) => b.id !== "datos_usuario");
+  // "cerofilas" ya no se muestra durante la revisión — el calificador ya tiene la propuesta
+  // del motor en el panel "Propuesta del motor"; el texto para copiar y pegar en CeroFilas
+  // recién aparece en `PantallaCerofilas`, después de ratificar o modificar.
+  const bloquesRestantes = bloques.filter((b) => b.id !== "datos_usuario" && b.id !== "cerofilas");
 
   const renderBloque = (bloque: Bloque, encabezado?: React.ReactNode) => (
     <Desplegable
@@ -701,17 +865,34 @@ export function FichaEditable({
         )
       }
     >
-      <div className="flex flex-col gap-4">
-        {bloque.campos.map((campo) => (
-          <CampoEditable
-            key={campo.id}
-            campo={campo}
-            valor={valores[campo.id] ?? campo.valor}
+      {bloque.id === "datos_usuario" ? (
+        <>
+          <TablaCamposCompacta
+            campos={bloque.campos}
+            valores={valores}
             editable={editable}
-            onCambiar={(nuevo) => cambiar(campo.id, nuevo)}
+            onCambiar={cambiar}
           />
-        ))}
-      </div>
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--atm-gris)]">
+              Documentos del expediente
+            </p>
+            <DocumentosExpediente documentos={documentos} />
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {bloque.campos.map((campo) => (
+            <CampoEditable
+              key={campo.id}
+              campo={campo}
+              valor={valores[campo.id] ?? campo.valor}
+              editable={editable && !campo.soloLectura}
+              onCambiar={(nuevo) => cambiar(campo.id, nuevo)}
+            />
+          ))}
+        </div>
+      )}
       <PanelReferencia datos={bloque.referencia} />
       {/* El cuadro del manual M3 va en la casilla del IBF: es ahí donde el calificador
           comprueba si el informe trae lo que el diagnóstico exige. */}
@@ -732,7 +913,7 @@ export function FichaEditable({
     <div>
       {bloqueUsuario && renderBloque(bloqueUsuario, encabezadoCaso)}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--atm-linea)] px-5 py-3">
         <div>
           <p className="text-sm font-semibold text-zinc-900">
             Formato para análisis de casos (para copiar y pegar)
@@ -766,12 +947,102 @@ export function FichaEditable({
       </div>
 
       {bloquesRestantes.map((bloque) => (
-        <div key={bloque.id} className={bloque.id === "cerofilas" ? "mt-8" : undefined}>
-          {renderBloque(bloque)}
-        </div>
+        <div key={bloque.id}>{renderBloque(bloque)}</div>
       ))}
 
       <p className="px-5 py-3 text-xs text-zinc-400">Datos de usuario revisados.</p>
+    </div>
+  );
+}
+
+/**
+ * Pantalla que se muestra UNA vez, justo después de ratificar o modificar (nunca en
+ * "no evaluable" — ahí no hay nada que subir a CeroFilas). Es el mismo contenido que antes
+ * vivía dentro de la ficha ("cerofilas"), pero movido a este momento: el calificador ya no
+ * lo necesita mientras revisa (tiene "Propuesta del motor" para eso), solo cuando termina y
+ * tiene que pegarlo en CeroFilas.
+ */
+export function PantallaCerofilas({
+  analisis,
+  casoId,
+  subiendo,
+  onYaLoSubi,
+  onVolver,
+  porcentajeFinal = null,
+  modificado = false,
+}: {
+  analisis: AnalisisQA;
+  casoId: string;
+  subiendo: boolean;
+  onYaLoSubi: () => void;
+  onVolver: () => void;
+  /** % final que decidió el calificador (`propuesta.porcentajeFinal`). Cuando `modificado` es
+   *  true, reemplaza al % del motor en el texto de CeroFilas — si no, quedaría pegando en el
+   *  sistema oficial el % que el motor propuso y no el que el calificador realmente decidió. */
+  porcentajeFinal?: number | null;
+  modificado?: boolean;
+}) {
+  const bloqueCerofilas = useMemo(() => construirBloques(analisis).find((b) => b.id === "cerofilas")!, [analisis]);
+
+  // Respeta las correcciones que el calificador haya guardado en la ficha (mismo storage que
+  // usa FichaEditable), para que el texto a pegar refleje lo último editado.
+  const valores = useMemo(() => {
+    const base: Record<string, string> = {};
+    for (const campo of bloqueCerofilas.campos) base[campo.id] = campo.valor;
+    let resultado = base;
+    try {
+      const guardado = localStorage.getItem(clavePorCaso(casoId));
+      if (guardado) resultado = { ...base, ...JSON.parse(guardado) };
+    } catch {
+      // Sin storage disponible: se usan los valores del análisis tal cual.
+    }
+    if (modificado && porcentajeFinal !== null) {
+      resultado = { ...resultado, cf_porcentaje: String(porcentajeFinal) };
+    }
+    return resultado;
+  }, [bloqueCerofilas, casoId, modificado, porcentajeFinal]);
+
+  return (
+    <div className="rounded-xl border border-[var(--atm-linea)] bg-white">
+      <div className="flex items-center justify-between border-b border-[var(--atm-linea)] px-5 py-4">
+        <h2 className="border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
+          {bloqueCerofilas.titulo}
+        </h2>
+        <BotonCopiar obtenerTexto={() => bloqueATexto(bloqueCerofilas, valores)} />
+      </div>
+
+      <div className="px-5 py-4">
+        <div className="flex flex-col gap-4">
+          {bloqueCerofilas.campos.map((campo) => (
+            <CampoEditable
+              key={campo.id}
+              campo={campo}
+              valor={valores[campo.id] ?? campo.valor}
+              editable={false}
+              onCambiar={() => {}}
+            />
+          ))}
+        </div>
+        <PanelReferencia datos={bloqueCerofilas.referencia} />
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-[var(--atm-linea)] px-5 py-4">
+        <button
+          type="button"
+          onClick={onVolver}
+          className="rounded-lg border border-[var(--atm-linea)] px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+        >
+          Volver a página principal
+        </button>
+        <button
+          type="button"
+          onClick={onYaLoSubi}
+          disabled={subiendo}
+          className="rounded-lg bg-[var(--atm-azul)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {subiendo ? "Guardando..." : "Ya lo subí a CeroFilas"}
+        </button>
+      </div>
     </div>
   );
 }
