@@ -37,14 +37,19 @@ Detalle no trivial: cuando un caso no tiene todavía el `analysis.json` real que
 | Ruta | Rol | Qué muestra | Estado |
 |---|---|---|---|
 | `/` | Público | Login (correo + contraseña) | ✅ hecho, contra BD real |
-| `/admin` (tab "Dashboard") | ADMIN | Métricas: totales, calificados/pendientes, IA vs. calificador, checklist por estado, ranking de calificadores por carga | ✅ hecho |
+| `/admin` (tab "Dashboard") | ADMIN | Métricas: totales, calificados/pendientes, propuesta sugerida vs. decisión del calificador, checklist por estado, ranking de calificadores por carga | ✅ hecho |
 | `/admin` (tab "Todos los casos") | ADMIN | Tabla de casos con filtro por estado y paginación (20/50/todos) | ✅ hecho |
 | `/admin` (tab "No aptos") | ADMIN | Solo casos `estadoChecklist = NO_APTO` | ✅ hecho |
 | `/admin` (tab "Calificadores") | ADMIN | CRUD calificadores (crear/editar/desactivar/reactivar) contra `/api/usuarios` | ✅ hecho, contra BD real |
 | `/admin` → "Ver caso" (modal) | ADMIN | Detalle del caso (ficha de solo lectura vía `FichaEditable`), incluye NO_APTO | ✅ hecho |
-| `/calificador` | CALIFICADOR | Mis casos pendientes (APTO/REQUIERE_REVISION, sin calificar) | ✅ hecho |
-| `/calificador/casos/[id]` | CALIFICADOR | Ficha de propuesta (tipo Word) + botones Confirmar/Modificar si está pendiente, solo lectura si ya se calificó | ✅ hecho |
-| `/calificador/historico` | CALIFICADOR | Casos ya calificados por ese usuario | ✅ hecho |
+| `/calificador` | CALIFICADOR | Mis casos pendientes (APTO/REQUIERE_REVISION, sin calificar). Filtros: buscar ID, estado, tamaño de página | ✅ hecho |
+| `/calificador/casos/[id]` | CALIFICADOR | Ficha (tipo Word) + tabla "Propuesta de calificación sugerida" con aviso de dirección + panel "Tu resolución" (Ratificar / Modificar / No evaluable) si está pendiente; solo lectura si ya se calificó | ✅ hecho |
+| `/calificador/casos/[id]` → `PantallaCerofilas` | CALIFICADOR | Post-resolución (y "Ver CeroFilas" del histórico): campos para copiar y pegar en CeroFilas por tarjeta + firma. Nada del bot visible | ✅ hecho |
+| `/calificador/historico` | CALIFICADOR | Casos que el usuario ya resolvió. Filtros: buscar ID, resolución (Ratificado/Modificado/Devuelto), tamaño de página | ✅ hecho |
+
+### Regla de copy: el calificador nunca ve "motor" / "IA" / "bot"
+
+En todo el texto visible (calificador y admin) la propuesta del bot se llama **"propuesta de calificación sugerida"** / **"sugerido"**, nunca "motor de EES", "propuesta del motor", "IA". El producto se llama **"Plataforma de Calificación"** (antes "Motor de Calificación") en login, header y `<title>`. Solo quedan con "motor" los **nombres internos de variables** (`idisMotor`, `porcentajeMotor`…) y comentarios de código — nada renderizado.
 
 ---
 
@@ -84,13 +89,13 @@ Detalle no trivial: cuando un caso no tiene todavía el `analysis.json` real que
 |---|---|---|---|
 | `src/app/api/auth/login/route.ts` | POST | Valida contra `usuarios` (bcrypt), firma JWT, setea cookie | `usuarios`, `roles`, `estado_usuario` |
 | `src/app/api/auth/logout/route.ts` | POST | Borra la cookie de sesión | — |
-| `src/app/api/casos/route.ts` | GET | Lista de casos: ADMIN ve todo, CALIFICADOR solo lo suyo y nunca NO_APTO (filtro en el `WHERE`) | `casos`, `calificaciones_finales`, `usuarios`, `estados_caso` |
+| `src/app/api/casos/route.ts` | GET | Lista de casos: ADMIN ve todo, CALIFICADOR solo lo suyo y nunca NO_APTO (filtro en el `WHERE`) | `casos`, `calificaciones_finales`, `usuarios`, `profesiones`, `estados_caso` |
 | `src/app/api/casos/[id]/route.ts` | GET | Detalle de un caso; resuelve `analysis_json` desde Drive on-demand (cache-on-read) si falta | `casos` (+ Drive) |
-| `src/app/api/casos/[id]/confirmar/route.ts` | POST | **Ratificar propuesta.** Body opcional `{ mr?, reev? }`. Escribe `calificaciones_finales` con `decision='ACEPTA'`, `idis_final`/`grado_final` = los del motor, `direccion` calculada vs. IVADEC original; mueve `estado_caso` a `FINALIZADO`, deja historial | `calificaciones_finales`, `casos`, `historial_estados_caso`, `estados_caso` |
-| `src/app/api/casos/[id]/modificar/route.ts` | POST | **Modificar propuesta.** Body `{ porcentajeFinal, motivoCodigo, fundamento (≥20 chars), mr?, reev? }`. `porcentajeFinal` se revalida server-side contra `TABLA_IDIS` (41 valores oficiales); `direccion` compara contra `porcentaje_ivadec_documento`, nunca contra la propuesta del motor | idem anterior |
-| `src/app/api/casos/[id]/no-evaluable/route.ts` (nuevo) | POST | **El caso no se puede evaluar.** Body `{ causaCodigo, detalle (≥20 chars) }`. `decision='NO_EVALUABLE'`, `porcentaje_final=NULL`; no es un rechazo clínico — no mueve a `FINALIZADO`, mueve a `EN_REVISION` (revisión administrativa) | idem anterior |
-| `src/app/api/casos/[id]/marcar-subido-cerofilas/route.ts` (nuevo) | POST | Botón **"Ya lo subí"** — independiente de la resolución, se puede marcar en cualquier momento. Sin body | `casos` (`subido_cerofilas`, `subido_cerofilas_en`) |
-| `src/app/api/casos/[id]/ficha/route.ts` | POST | Guarda snapshot de la ficha editada en `casos.ficha_editada` (nunca toca `analysis_json`, que sigue siendo la propuesta original de la IA) | `casos` |
+| `src/app/api/casos/[id]/confirmar/route.ts` | POST | **Ratificar propuesta.** Body opcional `{ mr?, reev? }`. Escribe `calificaciones_finales` con `decision='ACEPTA'`, `idis_final`/`grado_final` = los de la propuesta, `direccion` calculada vs. IVADEC original; mueve `estado_caso` a `FINALIZADO`, deja historial | `calificaciones_finales`, `casos`, `historial_estados_caso`, `estados_caso` |
+| `src/app/api/casos/[id]/modificar/route.ts` | POST | **Modificar propuesta.** Body `{ porcentajeFinal, motivoCodigo, fundamento (≥20 chars), mr?, reev? }`. `porcentajeFinal` se revalida server-side contra `TABLA_IDIS` (41 valores oficiales); `direccion` compara contra `porcentaje_ivadec_documento`, nunca contra la propuesta | idem anterior |
+| `src/app/api/casos/[id]/no-evaluable/route.ts` | POST | **El caso no se puede evaluar.** Body `{ causaCodigo, detalle (≥20 chars) }`. `decision='NO_EVALUABLE'`, `porcentaje_final=NULL`; no es un rechazo clínico — mueve `estado_caso` a `RECHAZADO_CALIFICADOR` (el admin lo ve como "DEVUELTO", va a bandeja de administración) | idem anterior |
+| `src/app/api/casos/[id]/marcar-subido-cerofilas/route.ts` | POST | Botón **"Ya lo subí"** — independiente de la resolución, se puede marcar en cualquier momento. Sin body | `casos` (`subido_cerofilas`, `subido_cerofilas_en`) |
+| `src/app/api/casos/[id]/ficha/route.ts` | POST | Guarda snapshot de la ficha editada en `casos.ficha_editada` (nunca toca `analysis_json`). **Ahora también se lee de vuelta** (`SELECT_CASO`), y `ratificar()` lo llama antes de confirmar, no solo `modificar` | `casos` |
 | `src/app/api/usuarios/route.ts` | GET / POST | Lista usuarios (solo ADMIN) / crea calificador o admin (bcrypt hash) | `usuarios`, `roles`, `estado_usuario` |
 | `src/app/api/usuarios/[id]/route.ts` | PATCH | Edita nombre/apellido/correo y/o activa-desactiva (nunca DELETE) | `usuarios`, `estado_usuario` |
 
@@ -113,9 +118,10 @@ Detalle no trivial: cuando un caso no tiene todavía el `analysis.json` real que
   activo: boolean; // nunca se borra, solo activo/inactivo
 }
 ```
+> `usuarios.profesion_id` (Revisión 11 de la BD) todavía **no** se expone en este endpoint ni se edita en el panel admin — el CRUD de calificadores sigue con nombre/apellido/correo/activo. Pendiente si se necesita gestionarlo desde la UI. Por ahora la profesión solo se usa para la firma en la resolución.
 
 ### Caso (`GET /api/casos`, `GET /api/casos/:id`)
-Mapeado en `src/lib/casos-mapper.ts` (`mapearFila`) desde las columnas reales de `casos` + `calificaciones_finales` + `estados_caso`:
+Mapeado en `src/lib/casos-mapper.ts` (`mapearFila`) desde `casos` + `calificaciones_finales` + `estados_caso` + `usuarios` + `profesiones`:
 ```ts
 {
   id: string;
@@ -125,16 +131,36 @@ Mapeado en `src/lib/casos-mapper.ts` (`mapearFila`) desde las columnas reales de
   nombreCompleto: string;
   estadoChecklist: "APTO" | "REQUIERE_REVISION" | "NO_APTO";
   estadoCaso: string;               // nombre de `estados_caso` (BORRADOR, EN_REVISION, FINALIZADO, etc.)
-  estadoCalificacion: "PENDIENTE" | "CALIFICADO"; // derivado: CALIFICADO si hay fila en calificaciones_finales
+  estadoCalificacion: "PENDIENTE" | "CALIFICADO"; // CALIFICADO si hay decisión en calificaciones_finales
   calificadorAsignadoId: string | null;
   calificadorNombre?: string | null;
   fechaAsignacion: string;   // ISO date
   fechaCalificacion: string | null;
-  analisis: AnalisisQA | null; // JSON real del bot, o ficha sintética, o null
+  analisis: AnalisisQA | null;                    // JSON real del bot, o ficha sintética, o null
+  fichaEditada: Record<string, string> | null;    // casos.ficha_editada — lo que el calificador guardó
+  // Comparativa IVADEC-CIF vs propuesta sugerida (tabla del panel "Propuesta de calificación sugerida")
+  porcentajeIvadecDocumento: number | null;
+  idisIvadec: string | null;  gradoIvadec: string | null;
+  idisMotor: string | null;   gradoMotor: string | null;   // "Motor" solo en el nombre interno; la UI dice "sugerida"
+  direccionSugerida: "SE_AUMENTA" | "SE_MANTIENE" | "SE_DISMINUYE" | null; // propuesta vs IVADEC, antes de resolver
+  subidoCerofilas: boolean;  subidoCerofilasEn: string | null;
+  // Decisión final del calificador (calificaciones_finales) — null hasta que resuelve
+  resolucion: {
+    decision: "ACEPTA" | "MODIFICA" | "NO_EVALUABLE";
+    idisFinal: string | null;  gradoFinal: string | null;
+    direccion: "SE_AUMENTA" | "SE_MANTIENE" | "SE_DISMINUYE" | null;
+    mrFinal: boolean | null;
+    reevFinal: "NO" | "EN_3_ANOS" | "EN_5_ANOS" | "EN_6_ANOS" | "EN_10_ANOS" | null;
+    motivoCodigo: string | null;   // solo MODIFICA
+    causaCodigo: string | null;    // solo NO_EVALUABLE
+    explicacion: string | null;    // fundamento (MODIFICA) o detalle (NO_EVALUABLE)
+    calificadorNombre: string | null;     // quien resolvió (cf.calificador_id → usuarios)
+    calificadorProfesion: string | null;  // profesiones.etiqueta
+  } | null;
   propuesta: {
     diagnosticoPrincipal: string;
     diagnosticoSecundario: string | null;
-    porcentajeIvadecIA: number;
+    porcentajeIvadecIA: number | null;   // pese al nombre, es el % que PROPONE la propuesta sugerida
     porcentajeFinal: number | null;
     fundamento: string;
     modificadoPorCalificador: boolean;
@@ -145,6 +171,24 @@ Mapeado en `src/lib/casos-mapper.ts` (`mapearFila`) desde las columnas reales de
 ```
 
 Para el caso **NO_APTO**, la columna `casos.no_apto_mensaje` ya existe en el schema (visible solo para ADMIN) — el frontend la trae en el `SELECT_CASO` pero conviene confirmar si ya se está mostrando en el modal "Ver caso" del admin o si sigue pendiente de UI.
+
+### Ficha editada — ahora también se lee de la BD
+
+`SELECT_CASO` trae `c.ficha_editada` y `mapearFila` lo expone como `caso.fichaEditada` (`Record<string,string> | null`). `FichaEditable` y `PantallaCerofilas` lo usan con prioridad **análisis original → `fichaEditada` (BD) → `localStorage`** — así el histórico (y abrir el caso en otro equipo) muestra lo que el calificador dejó, no solo lo que quedó en el navegador. `PanelResolucion.ratificar()` ahora también hace `POST /api/casos/[id]/ficha` antes de confirmar (antes solo lo hacía "Modificar"), para que la ratificación con campos tocados quede persistida.
+
+En `PantallaCerofilas` dos campos de CeroFilas se re-arman con lo que el calificador dejó (no con `carga_cerofilas` del bot):
+- **"Antecedentes Sociales Relevantes"** → los 5 sub-campos del bloque ANTECEDENTES SOCIALES (Nivel educativo / Trabajo·Ocupación / Situación familiar / Grado de Limitación / Situación especial).
+- **"Observaciones Datos Relevantes de Calificación"** → `textoObservacionesCerofilas()`: informe biomédico funcional + complementarios + IVADEC + OBSERVACIONES DEL IVADEC + la sección PROPUESTA con la **decisión final** (`caso.resolucion`: `porcentaje_final` + `direccion` → "AUMENTAR % A 30%", `mr_final`, `reev_final`, `explicacion`) + firma. No usa la propuesta del bot. Se muestra completo en una tarjeta (`whitespace-pre-wrap`) con su propio botón "Copiar".
+
+Ambos títulos van en `--atm-azul2` (marcan sección); el resto de los campos de CeroFilas en negro.
+
+### Dirección sugerida (orientación al calificador antes de resolver)
+
+`caso.direccionSugerida` (`SE_AUMENTA` / `SE_MANTIENE` / `SE_DISMINUYE` / `null`) lo calcula `mapearFila` con `calcularDireccion(porcentaje sugerido, porcentaje_ivadec_documento)` — el mismo cálculo que hace `…/confirmar` para la dirección final, pero sobre el % de la propuesta. `TablaComparativaIdis` lo pinta como aviso (subir/mantener/bajar + salto de grado) mientras el caso **no está resuelto**; una vez resuelto se muestra `resolucion.direccion` (la dirección de la decisión del calificador).
+
+### Firma del calificador en la resolución (Revisión 11 de la BD)
+
+Cuando un caso ya está resuelto, `caso.resolucion` incluye `calificadorNombre` y `calificadorProfesion` — vienen de `calificaciones_finales.calificador_id` → `usuarios` → `profesiones.etiqueta` (join `ucf`/`pcf` en `SELECT_BASE`). Se renderiza al pie de `PantallaCerofilas` y de `ResolucionRegistrada`, y se agrega al final del texto que se copia a CeroFilas (`PantallaCerofilas` → `textoCerofilas`). No toca el JWT: la firma solo existe después de ratificar/modificar/declarar no evaluable.
 
 ---
 

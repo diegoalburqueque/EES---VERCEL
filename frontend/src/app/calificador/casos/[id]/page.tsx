@@ -125,6 +125,10 @@ export default function DetalleCasoPage() {
                 onVolver={() => router.push(rutaVolverCerofilas)}
                 porcentajeFinal={propuesta.porcentajeFinal}
                 modificado={propuesta.modificadoPorCalificador}
+                calificadorNombre={caso.resolucion?.calificadorNombre ?? caso.calificadorNombre ?? null}
+                calificadorProfesion={caso.resolucion?.calificadorProfesion ?? null}
+                fichaEditada={caso.fichaEditada}
+                resolucion={caso.resolucion}
               />
             ) : (
               <div className="rounded-xl border border-[var(--atm-linea)] bg-white p-5">
@@ -168,6 +172,7 @@ export default function DetalleCasoPage() {
                 editable={caja === "modificar" && !yaCalificado}
                 encabezadoCaso={encabezadoCaso}
                 documentos={propuesta.documentos}
+                fichaEditada={caso.fichaEditada}
               />
             ) : (
               <>
@@ -196,10 +201,10 @@ export default function DetalleCasoPage() {
             )}
           </div>
 
-          {/* D. Propuesta del motor — tabla comparativa IVADEC vs Motor (vs Calificador si ya resuelto) */}
+          {/* D. Propuesta de calificación sugerida — tabla comparativa IVADEC vs propuesta (vs Calificador si ya resuelto) */}
           <div className="rounded-xl border border-[var(--atm-linea)] bg-white px-5 py-4">
             <h2 className="mb-3 border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
-              Propuesta del motor
+              Propuesta de calificación sugerida
             </h2>
             <TablaComparativaIdis caso={caso} />
           </div>

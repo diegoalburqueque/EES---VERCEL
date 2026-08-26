@@ -3,6 +3,7 @@ import type { Caso, ChecklistItem, Decision, Direccion, ReevaluacionFinal } from
 import type { AnalisisQA } from "@/data/analisis";
 import { aFechaISO } from "@/lib/fechas";
 import { resolverComparativaIdis } from "@/lib/comparativa-idis";
+import { calcularDireccion } from "@/lib/resolucion";
 
 export interface FilaCaso {
   id: string;
@@ -11,6 +12,7 @@ export interface FilaCaso {
   rut: string;
   nombre_completo: string;
   analysis_json: AnalisisQA | null;
+  ficha_editada: Record<string, string> | null;
   estado_checklist: Caso["estadoChecklist"];
   estado_caso: string;
   calificador_asignado_id: string | null;
@@ -80,12 +82,16 @@ export interface FilaCaso {
   cal_motivo_codigo: string | null;
   cal_causa_codigo: string | null;
   cal_explicacion: string | null;
+
+  // Firma: quién resolvió (calificaciones_finales.calificador_id) + su profesión
+  cal_calificador_nombre: string | null;
+  cal_calificador_profesion: string | null;
 }
 
 /** Columnas que necesitan mapearFila / construirAnalisisSintetico. Compartidas entre el
  *  listado (/api/casos) y el detalle (/api/casos/[id]). */
 export const SELECT_CASO = `
-    c.id, c.id_tramite, c.region, c.rut, c.nombre_completo, c.analysis_json, c.estado_checklist,
+    c.id, c.id_tramite, c.region, c.rut, c.nombre_completo, c.analysis_json, c.ficha_editada, c.estado_checklist,
     c.calificador_asignado_id, c.fecha_asignacion, c.no_apto_mensaje, c.json_resultado_url,
     c.requiere_representante, c.representante_presente,
     c.ident_edad_texto, c.ident_sexo, c.ident_direccion_notificacion, c.ident_comuna, c.ident_zona_vivienda,
@@ -120,7 +126,10 @@ export const SELECT_CASO = `
     cf.reev_final AS cal_reev_final,
     cf.motivo_codigo AS cal_motivo_codigo,
     cf.causa_codigo AS cal_causa_codigo,
-    cf.explicacion AS cal_explicacion
+    cf.explicacion AS cal_explicacion,
+
+    (ucf.nombre || ' ' || ucf.apellido) AS cal_calificador_nombre,
+    pcf.etiqueta AS cal_calificador_profesion
 `;
 
 export const SELECT_BASE = `
@@ -128,6 +137,8 @@ export const SELECT_BASE = `
   FROM casos c
   LEFT JOIN calificaciones_finales cf ON cf.caso_id = c.id
   LEFT JOIN usuarios u ON u.id = c.calificador_asignado_id
+  LEFT JOIN usuarios ucf ON ucf.id = cf.calificador_id
+  LEFT JOIN profesiones pcf ON pcf.id = ucf.profesion_id
   JOIN estados_caso ec ON ec.id = c.estado_caso_id
 `;
 
@@ -314,8 +325,17 @@ export function mapearFila(fila: FilaCaso): Caso {
   // de "0%"/"No disponible" cuando el bot no llegó a parsear esas columnas.
   const comparativa = resolverComparativaIdis(analisis, fila);
 
+  // Dirección que implica la propuesta sugerida vs. el IVADEC-CIF original — mismo cálculo que
+  // hace el endpoint de Ratificar para la dirección final, pero contra el % sugerido.
+  const direccionSugerida =
+    comparativa.porcentajeMotor === null
+      ? null
+      : calcularDireccion(comparativa.porcentajeMotor, comparativa.porcentajeIvadecDocumento);
+
   return {
     analisis,
+    fichaEditada:
+      fila.ficha_editada && typeof fila.ficha_editada === "object" ? fila.ficha_editada : null,
     id: fila.id,
     idTramite: fila.id_tramite,
     region: fila.region,
@@ -336,6 +356,7 @@ export function mapearFila(fila: FilaCaso): Caso {
     gradoIvadec: comparativa.gradoIvadec,
     idisMotor: comparativa.idisMotor,
     gradoMotor: comparativa.gradoMotor,
+    direccionSugerida,
     subidoCerofilas: fila.subido_cerofilas,
     subidoCerofilasEn: fila.subido_cerofilas_en ? aFechaISO(fila.subido_cerofilas_en) : null,
     resolucion:
@@ -351,6 +372,8 @@ export function mapearFila(fila: FilaCaso): Caso {
             motivoCodigo: fila.cal_motivo_codigo,
             causaCodigo: fila.cal_causa_codigo,
             explicacion: fila.cal_explicacion,
+            calificadorNombre: fila.cal_calificador_nombre,
+            calificadorProfesion: fila.cal_calificador_profesion,
           },
     propuesta: {
       diagnosticoPrincipal: fila.calif_diagnostico_principal ?? "",

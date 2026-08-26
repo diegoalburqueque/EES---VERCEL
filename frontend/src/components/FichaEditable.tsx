@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { AnalisisQA } from "@/data/analisis";
-import type { DocumentoCaso } from "@/data/casos";
+import type { DocumentoCaso, ResolucionCalificador } from "@/data/casos";
 import { GuiaClinicaIBF } from "@/components/GuiaClinicaIBF";
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 
@@ -238,7 +238,7 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         { etiqueta: "Fecha del ISRA", valor: texto(fechas.isra) },
         { etiqueta: "Completado por", valor: texto(social.isra_completado_por) },
         {
-          etiqueta: "Antecedentes sociales relevantes (motor)",
+          etiqueta: "Antecedentes sociales relevantes (sugerido)",
           valor: texto(calif.antecedentes_sociales_relevantes),
         },
         ...observacionesPorCodigo(["13"]),
@@ -273,11 +273,11 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         },
         { etiqueta: "Fecha del IBF", valor: texto(fechas.ibf) },
         { etiqueta: "Completado por", valor: texto(ibf.ibf_completado_por) },
-        { etiqueta: "Diagnóstico principal (motor)", valor: texto(calif.diagnostico_principal) },
-        { etiqueta: "Diagnósticos secundarios (motor)", valor: texto(calif.diagnosticos_secundarios) },
-        { etiqueta: "Origen principal (motor)", valor: texto(calif.origen_principal_discapacidad) },
+        { etiqueta: "Diagnóstico principal (sugerido)", valor: texto(calif.diagnostico_principal) },
+        { etiqueta: "Diagnósticos secundarios (sugerido)", valor: texto(calif.diagnosticos_secundarios) },
+        { etiqueta: "Origen principal (sugerido)", valor: texto(calif.origen_principal_discapacidad) },
         {
-          etiqueta: "Observaciones de datos relevantes (motor)",
+          etiqueta: "Observaciones de datos relevantes (sugerido)",
           valor: texto(calif.observaciones_datos_relevantes_calificacion),
         },
         ...observacionesPorCodigo(["10", "11", "12"]),
@@ -339,7 +339,7 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         },
         {
           id: "prop_porcentaje",
-          etiqueta: "Porcentaje (PROPUESTA MOTOR EES)",
+          etiqueta: "Porcentaje (PROPUESTA SUGERIDA)",
           valor: texto(propuestaIA.porcentaje_propuesto),
           soloLectura: true,
         },
@@ -354,12 +354,12 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
         { id: "prop_reev", etiqueta: "REEV", valor: texto(cliente.propuesta.reevaluacion) },
       ],
       referencia: [
-        { etiqueta: "Acción sugerida por el motor", valor: texto(propuestaIA.accion_sugerida) },
+        { etiqueta: "Acción sugerida", valor: texto(propuestaIA.accion_sugerida) },
         {
           etiqueta: "Grado propuesto",
           valor: `${texto(propuestaIA.grado_propuesto)} · IDIS ${texto(calif.idis)}`,
         },
-        { etiqueta: "Fundamento del motor", valor: texto(propuestaIA.fundamento_breve) },
+        { etiqueta: "Fundamento de la propuesta", valor: texto(propuestaIA.fundamento_breve) },
         {
           etiqueta: `Glosa (${texto(cliente.propuesta.glosa_tipo) || "sin tipo"})`,
           valor: texto(cliente.propuesta.glosa_texto),
@@ -458,6 +458,80 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
   ];
 }
 
+/** Valor actual de un campo (editado o no) por id de bloque + id de campo. */
+function valorCampo(
+  bloques: Bloque[],
+  bloqueId: string,
+  campoId: string,
+  valores: Record<string, string>
+): string {
+  const campo = bloques.find((b) => b.id === bloqueId)?.campos.find((c) => c.id === campoId);
+  return (valores[campoId] ?? campo?.valor ?? "").trim();
+}
+
+/**
+ * Texto "FORMATO PARA ANALISIS DE CASOS" que el calificador copia y pega — sigue el esqueleto
+ * del Word del equipo: ANTECEDENTES SOCIALES / OBSERVACIONES DE LA CALIFICACIÓN / INFORMES
+ * COMPLEMENTARIOS / IVADEC / OBSERVACIONES DEL IVADEC / PROPUESTA, SE SUGIERE. No incluye la
+ * casilla de CeroFilas (se copia aparte en PantallaCerofilas) ni los datos del usuario.
+ */
+function textoFormatoAnalisis(bloques: Bloque[], valores: Record<string, string>): string {
+  const v = (bloqueId: string, campoId: string) => valorCampo(bloques, bloqueId, campoId, valores);
+
+  const complementarios = bloques.find((b) => b.id === "complementarios");
+  const lineasComplementarios = (complementarios?.campos ?? []).map(
+    (c) => `-  ${c.etiqueta}: ${(valores[c.id] ?? c.valor).trim()}`
+  );
+
+  return [
+    "FORMATO PARA ANALISIS DE CASOS (PARA COPIAR Y PEGAR)",
+    "",
+    "ANTECEDENTES SOCIALES",
+    "",
+    `* Nivel educativo: ${v("antecedentes_sociales", "nivel_educativo")}`,
+    `* Trabajo / Ocupación: ${v("antecedentes_sociales", "trabajo_ocupacion")}`,
+    `* Situación familiar: ${v("antecedentes_sociales", "situacion_familiar")}`,
+    `* Grado de Limitación: ${v("antecedentes_sociales", "grado_limitacion")}`,
+    `* Situación especial*: ${v("antecedentes_sociales", "situacion_especial")}`,
+    "",
+    "",
+    "OBSERVACIONES DE LA CALIFICACIÓN",
+    "Informe biomédico funcional:",
+    "",
+    `* Diagnósticos: ${v("observaciones_calificacion", "diagnosticos")}`,
+    `* Información relevante: ${v("observaciones_calificacion", "informacion_relevante")}`,
+    `* Descripción del estado funcional: ${v("observaciones_calificacion", "estado_funcional")}`,
+    `* Medicamentos: ${v("observaciones_calificacion", "medicamentos")}`,
+    `* Ayudas Técnicas: ${v("observaciones_calificacion", "ayudas_tecnicas")}`,
+    "",
+    "",
+    "INFORMES O EXAMENES COMPLEMENTARIOS",
+    ...(lineasComplementarios.length ? lineasComplementarios : ["-"]),
+    "",
+    "",
+    "IVADEC",
+    "",
+    `* Aplicado a: ${v("ivadec", "aplicado_a")}`,
+    `* Porcentaje Obtenido: ${v("ivadec", "porcentaje_obtenido")}`,
+    `* Aplicado con Origen: ${v("ivadec", "aplicado_con_origen")}`,
+    "",
+    "",
+    "OBSERVACIONES DEL IVADEC:",
+    v("propuesta", "observaciones_ivadec"),
+    "",
+    "     PROPUESTA, SE SUGIERE:",
+    "",
+    `* Porcentaje: ${v("propuesta", "prop_porcentaje")}`,
+    `* Orígenes: ${v("propuesta", "prop_origenes")}`,
+    `* Fundamento: ${v("propuesta", "prop_fundamento")}`,
+    `* MR: ${v("propuesta", "prop_mr")}`,
+    `* REEV: ${v("propuesta", "prop_reev")}`,
+    "",
+    "",
+    "Datos de usuario revisados.",
+  ].join("\n");
+}
+
 /** Texto plano de un bloque, en el formato acordado para pegar. */
 function bloqueATexto(bloque: Bloque, valores: Record<string, string>): string {
   const cuerpo = bloque.campos
@@ -530,7 +604,7 @@ function PanelReferencia({ datos }: { datos: DatoReferencia[] }) {
   return (
     <details open className="mt-4 rounded-lg border border-[var(--atm-linea)] bg-zinc-50">
       <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-zinc-900 hover:text-zinc-700">
-        Motor de EES — análisis de esta sección ({visibles.length}) ▾
+        Análisis de esta sección ({visibles.length}) ▾
       </summary>
       <div className="flex flex-col gap-3 border-t border-[var(--atm-linea)] px-3 py-3">
         {visibles.map((dato, i) => (
@@ -592,7 +666,41 @@ function CampoEditable({
       )}
       {modificado && (
         <p className="mt-1 whitespace-pre-line text-xs text-zinc-400">
-          <span className="font-medium">Motor de EES:</span> {campo.valor || "—"}
+          <span className="font-medium">Propuesta sugerida:</span> {campo.valor || "—"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Campo de la pantalla "COPIAR Y PEGAR EN CEROFILAS" en modo lectura: cada campo va en su
+ *  propia tarjeta (encabezado con la etiqueta + cuerpo con el valor) para que el calificador
+ *  distinga visualmente sección por sección. Marca "Editado" y muestra el valor sugerido
+ *  original cuando el calificador cambió el campo. */
+function CampoCerofilas({
+  etiqueta,
+  valor,
+  original,
+}: {
+  etiqueta: string;
+  valor: string;
+  original: string;
+}) {
+  const modificado = valor !== original;
+  return (
+    <div className="overflow-hidden rounded-lg border border-[var(--atm-linea)]">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--atm-linea)] bg-zinc-50 px-3 py-1.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-900">{etiqueta}</p>
+        {modificado && (
+          <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            Editado
+          </span>
+        )}
+      </div>
+      <p className="whitespace-pre-line px-3 py-2 text-sm text-zinc-700">{valor || "—"}</p>
+      {modificado && (
+        <p className="whitespace-pre-line border-t border-dashed border-[var(--atm-linea)] px-3 py-1.5 text-xs text-zinc-400">
+          <span className="font-medium">Propuesta sugerida:</span> {original || "—"}
         </p>
       )}
     </div>
@@ -769,6 +877,7 @@ export function FichaEditable({
   editable = true,
   encabezadoCaso,
   documentos = [],
+  fichaEditada = null,
 }: {
   analisis: AnalisisQA;
   casoId: string;
@@ -777,6 +886,9 @@ export function FichaEditable({
   encabezadoCaso?: React.ReactNode;
   /** Links de `documentos_caso` — se muestran arriba, dentro de la casilla de datos del usuario. */
   documentos?: DocumentoCaso[];
+  /** Snapshot guardado en `casos.ficha_editada` (BD). Se usa como respaldo cuando el navegador
+   *  no tiene nada en localStorage — clave en el histórico o al abrir en otro equipo. */
+  fichaEditada?: Record<string, string> | null;
 }) {
   const bloques = useMemo(() => construirBloques(analisis), [analisis]);
 
@@ -798,14 +910,17 @@ export function FichaEditable({
   // un store externo, el caso legítimo de setState dentro de un efecto.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    setValores(valoresIniciales);
+    // Prioridad: análisis original → snapshot de la BD (ficha_editada) → localStorage (lo más
+    // reciente que el calificador tocó en este navegador, si existe).
+    let base = { ...valoresIniciales, ...(fichaEditada ?? {}) };
     try {
       const guardado = localStorage.getItem(claveGuardado);
-      if (guardado) setValores({ ...valoresIniciales, ...JSON.parse(guardado) });
+      if (guardado) base = { ...base, ...JSON.parse(guardado) };
     } catch {
-      // localStorage no disponible o con contenido inválido: se usan los valores del análisis.
+      // localStorage no disponible o con contenido inválido: se usa lo anterior.
     }
-  }, [valoresIniciales, claveGuardado]);
+    setValores(base);
+  }, [valoresIniciales, claveGuardado, fichaEditada]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function cambiar(id: string, nuevo: string) {
@@ -831,14 +946,7 @@ export function FichaEditable({
 
   const hayEdiciones = Object.keys(valoresIniciales).some((id) => valores[id] !== valoresIniciales[id]);
 
-  const textoCompleto = () =>
-    [
-      "FORMATO PARA ANALISIS DE CASOS (PARA COPIAR Y PEGAR)",
-      "",
-      ...bloques.filter((b) => !b.fueraDelFormato).map((bloque) => bloqueATexto(bloque, valores)),
-      "",
-      "Datos de usuario revisados.",
-    ].join("\n\n");
+  const textoCompleto = () => textoFormatoAnalisis(bloques, valores);
 
 
   // La casilla de datos del usuario comparte barra con la cabecera del caso; el resto va debajo.
@@ -956,6 +1064,130 @@ export function FichaEditable({
 }
 
 /**
+ * El campo "Antecedentes Sociales Relevantes" de CeroFilas se muestra abierto en los mismos 5
+ * sub-campos que el calificador ve/edita en el bloque ANTECEDENTES SOCIALES de la ficha — con
+ * lo que él dejó, no con el párrafo pre-armado. `[id de campo en la ficha, etiqueta]`.
+ */
+const SUBCAMPOS_ANTECEDENTES: [string, string][] = [
+  ["nivel_educativo", "Nivel educativo"],
+  ["trabajo_ocupacion", "Trabajo / Ocupación"],
+  ["situacion_familiar", "Situación familiar"],
+  ["grado_limitacion", "Grado de Limitación"],
+  ["situacion_especial", "Situación especial*"],
+];
+
+function lineasAntecedentesSociales(valores: Record<string, string>) {
+  return SUBCAMPOS_ANTECEDENTES.map(([id, etiqueta]) => ({
+    etiqueta,
+    valor: (valores[id] ?? "").trim(),
+  }));
+}
+
+/** Texto de los 5 sub-campos para el bloque que se copia a CeroFilas. */
+function textoAntecedentesSociales(valores: Record<string, string>): string {
+  return lineasAntecedentesSociales(valores)
+    .map((l) => `* ${l.etiqueta}: ${l.valor}`)
+    .join("\n");
+}
+
+const VERBO_DIRECCION: Record<string, string> = {
+  SE_AUMENTA: "AUMENTAR",
+  SE_DISMINUYE: "DISMINUIR",
+  SE_MANTIENE: "MANTENER",
+};
+
+const REEV_TEXTO: Record<string, string> = {
+  NO: "NO",
+  EN_3_ANOS: "SÍ, en 3 años",
+  EN_5_ANOS: "SÍ, en 5 años",
+  EN_6_ANOS: "SÍ, en 6 años",
+  EN_10_ANOS: "SÍ, en 10 años",
+};
+
+/**
+ * Texto completo del campo "Observaciones Datos Relevantes de Calificación" de CeroFilas:
+ * informe biomédico funcional + complementarios + IVADEC + observaciones del IVADEC + la
+ * PROPUESTA con la DECISIÓN FINAL del calificador (no la sugerencia del bot) + firma.
+ * Todo sale de lo que el calificador dejó en la ficha (`valores`) y de su resolución.
+ */
+function textoObservacionesCerofilas(
+  bloques: Bloque[],
+  valores: Record<string, string>,
+  analisis: AnalisisQA,
+  resolucion: ResolucionCalificador | null,
+  porcentajeFinal: number | null,
+  calificadorNombre: string | null,
+  calificadorProfesion: string | null
+): string {
+  const v = (bloqueId: string, campoId: string) => valorCampo(bloques, bloqueId, campoId, valores);
+
+  const ibfPor = (
+    analisis.propuesta_formato_cliente.datos_relevantes_calificacion.ibf_completado_por ?? ""
+  ).trim();
+
+  const complementarios = bloques.find((b) => b.id === "complementarios");
+  const lineasComplementarios = (complementarios?.campos ?? []).map((c) => {
+    const val = (valores[c.id] ?? c.valor).trim();
+    return c.etiqueta === "Sin informes" ? `- ${val}` : `- ${c.etiqueta}${val ? `: ${val}` : ""}`;
+  });
+
+  // PROPUESTA: la decisión final del calificador, no la del bot.
+  let lineaPorcentaje = "";
+  if (porcentajeFinal !== null && resolucion?.direccion) {
+    lineaPorcentaje =
+      resolucion.direccion === "SE_MANTIENE"
+        ? `MANTENER % EN ${porcentajeFinal}%`
+        : `${VERBO_DIRECCION[resolucion.direccion]} % A ${porcentajeFinal}%`;
+  } else if (porcentajeFinal !== null) {
+    lineaPorcentaje = `${porcentajeFinal}%`;
+  }
+  const lineaMr =
+    resolucion?.mrFinal === true ? "SI" : resolucion?.mrFinal === false ? "NO" : v("propuesta", "prop_mr");
+  const lineaReev = resolucion?.reevFinal ? REEV_TEXTO[resolucion.reevFinal] : v("propuesta", "prop_reev");
+  const lineaFundamento = (resolucion?.explicacion ?? "").trim() || v("propuesta", "prop_fundamento");
+
+  const lineas: string[] = [
+    `Informe biomédico funcional:${ibfPor ? ` ${ibfPor}` : ""}`,
+    "",
+    "•\tDiagnósticos:",
+    v("observaciones_calificacion", "diagnosticos"),
+    "",
+    "•\tInformación relevante:",
+    v("observaciones_calificacion", "informacion_relevante"),
+    "",
+    `•\tDescripción del estado funcional: ${v("observaciones_calificacion", "estado_funcional")}`,
+    "",
+    `•\tMedicamentos: ${v("observaciones_calificacion", "medicamentos")}`,
+    "",
+    `•\tAyudas Técnicas: ${v("observaciones_calificacion", "ayudas_tecnicas")}`,
+    "",
+    "INFORMES O EXAMENES COMPLEMENTARIOS",
+    ...(lineasComplementarios.length ? lineasComplementarios : ["-"]),
+    "",
+    "IVADEC",
+    `•\tAplicado a: ${v("ivadec", "aplicado_a")}`,
+    `•\tPorcentaje Obtenido: ${v("ivadec", "porcentaje_obtenido")}`,
+    `•\tAplicado con Origen: ${v("ivadec", "aplicado_con_origen")}`,
+    "",
+    "OBSERVACIONES DEL IVADEC:",
+    v("propuesta", "observaciones_ivadec"),
+    "",
+    "     PROPUESTA, SE SUGIERE:",
+    `•\tPorcentaje: ${lineaPorcentaje}`,
+    `•\tOrígenes: ${v("propuesta", "prop_origenes")}`,
+    `•\tFundamento: ${lineaFundamento}`,
+    `•\tMR: ${lineaMr}`,
+    `•\tREEV: ${lineaReev}`,
+  ];
+
+  if (calificadorNombre) {
+    lineas.push("", "DATOS DE USUARIO REVISADOS", calificadorNombre, calificadorProfesion ?? "");
+  }
+
+  return lineas.join("\n");
+}
+
+/**
  * Pantalla que se muestra UNA vez, justo después de ratificar o modificar (nunca en
  * "no evaluable" — ahí no hay nada que subir a CeroFilas). Es el mismo contenido que antes
  * vivía dentro de la ficha ("cerofilas"), pero movido a este momento: el calificador ya no
@@ -970,6 +1202,10 @@ export function PantallaCerofilas({
   onVolver,
   porcentajeFinal = null,
   modificado = false,
+  calificadorNombre = null,
+  calificadorProfesion = null,
+  fichaEditada = null,
+  resolucion = null,
 }: {
   analisis: AnalisisQA;
   casoId: string;
@@ -981,26 +1217,71 @@ export function PantallaCerofilas({
    *  sistema oficial el % que el motor propuso y no el que el calificador realmente decidió. */
   porcentajeFinal?: number | null;
   modificado?: boolean;
+  /** Firma del calificador que resolvió: nombre + profesión (`caso.resolucion`). Se muestra al
+   *  pie y se agrega al final del texto que se copia a CeroFilas. */
+  calificadorNombre?: string | null;
+  calificadorProfesion?: string | null;
+  /** Snapshot de `casos.ficha_editada` (BD). En el histórico es la única fuente de lo que el
+   *  calificador dejó (localStorage puede no existir en ese navegador). */
+  fichaEditada?: Record<string, string> | null;
+  /** Decisión final del calificador (`caso.resolucion`) — alimenta la sección PROPUESTA del
+   *  campo "Observaciones Datos Relevantes de Calificación" con el % / MR / REEV finales. */
+  resolucion?: ResolucionCalificador | null;
 }) {
-  const bloqueCerofilas = useMemo(() => construirBloques(analisis).find((b) => b.id === "cerofilas")!, [analisis]);
+  const bloques = useMemo(() => construirBloques(analisis), [analisis]);
+  const bloqueCerofilas = useMemo(() => bloques.find((b) => b.id === "cerofilas")!, [bloques]);
 
-  // Respeta las correcciones que el calificador haya guardado en la ficha (mismo storage que
-  // usa FichaEditable), para que el texto a pegar refleje lo último editado.
+  // Lo que el calificador dejó, con prioridad: análisis original → snapshot de la BD
+  // (ficha_editada) → localStorage (lo más reciente de este navegador, si existe). Incluye
+  // TODOS los campos de la ficha, no solo los de CeroFilas, porque "Antecedentes Sociales
+  // Relevantes" se arma con los 5 sub-campos del bloque ANTECEDENTES SOCIALES.
   const valores = useMemo(() => {
     const base: Record<string, string> = {};
-    for (const campo of bloqueCerofilas.campos) base[campo.id] = campo.valor;
-    let resultado = base;
+    for (const b of bloques) for (const campo of b.campos) base[campo.id] = campo.valor;
+    let resultado = { ...base, ...(fichaEditada ?? {}) };
     try {
       const guardado = localStorage.getItem(clavePorCaso(casoId));
-      if (guardado) resultado = { ...base, ...JSON.parse(guardado) };
+      if (guardado) resultado = { ...resultado, ...JSON.parse(guardado) };
     } catch {
-      // Sin storage disponible: se usan los valores del análisis tal cual.
+      // Sin storage disponible: se usa lo anterior.
     }
     if (modificado && porcentajeFinal !== null) {
       resultado = { ...resultado, cf_porcentaje: String(porcentajeFinal) };
     }
     return resultado;
-  }, [bloqueCerofilas, casoId, modificado, porcentajeFinal]);
+  }, [bloques, casoId, modificado, porcentajeFinal, fichaEditada]);
+
+  // Firma que va al pie de la pantalla y también al final del texto que se pega en CeroFilas.
+  const firmaCalificador = calificadorNombre
+    ? `${calificadorNombre}\n${calificadorProfesion ?? "Profesión no registrada"}`
+    : null;
+
+  // "Observaciones Datos Relevantes de Calificación": todo el informe + PROPUESTA con la
+  // decisión final. Se calcula una vez y se reusa en la tarjeta y en el texto que se copia.
+  const textoObservaciones = useMemo(
+    () =>
+      textoObservacionesCerofilas(
+        bloques,
+        valores,
+        analisis,
+        resolucion,
+        porcentajeFinal,
+        calificadorNombre,
+        calificadorProfesion
+      ),
+    [bloques, valores, analisis, resolucion, porcentajeFinal, calificadorNombre, calificadorProfesion]
+  );
+
+  const textoCerofilas = () => {
+    // Antecedentes → 5 sub-campos. Observaciones → el informe completo con la decisión final.
+    const valoresCopia = {
+      ...valores,
+      cf_antecedentes: `\n${textoAntecedentesSociales(valores)}`,
+      cf_observaciones: `\n${textoObservaciones}`,
+    };
+    const base = bloqueATexto(bloqueCerofilas, valoresCopia);
+    return firmaCalificador ? `${base}\n\n${firmaCalificador}` : base;
+  };
 
   return (
     <div className="rounded-xl border border-[var(--atm-linea)] bg-white">
@@ -1008,22 +1289,61 @@ export function PantallaCerofilas({
         <h2 className="border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
           {bloqueCerofilas.titulo}
         </h2>
-        <BotonCopiar obtenerTexto={() => bloqueATexto(bloqueCerofilas, valores)} />
+        <BotonCopiar obtenerTexto={textoCerofilas} />
       </div>
 
       <div className="px-5 py-4">
-        <div className="flex flex-col gap-4">
-          {bloqueCerofilas.campos.map((campo) => (
-            <CampoEditable
-              key={campo.id}
-              campo={campo}
-              valor={valores[campo.id] ?? campo.valor}
-              editable={false}
-              onCambiar={() => {}}
-            />
-          ))}
+        <div className="flex flex-col gap-3">
+          {bloqueCerofilas.campos.map((campo) =>
+            campo.id === "cf_antecedentes" ? (
+              <div key={campo.id} className="overflow-hidden rounded-lg border border-[var(--atm-linea)]">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--atm-linea)] bg-zinc-50 px-3 py-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--atm-azul2)]">
+                    {campo.etiqueta}
+                  </p>
+                  <BotonCopiar obtenerTexto={() => textoAntecedentesSociales(valores)} />
+                </div>
+                <div className="flex flex-col divide-y divide-[var(--atm-linea)]">
+                  {lineasAntecedentesSociales(valores).map((l) => (
+                    <div key={l.etiqueta} className="px-3 py-2">
+                      <p className="text-xs font-semibold text-zinc-900">{l.etiqueta}</p>
+                      <p className="mt-0.5 whitespace-pre-line text-sm text-zinc-700">{l.valor || "—"}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : campo.id === "cf_observaciones" ? (
+              <div key={campo.id} className="overflow-hidden rounded-lg border border-[var(--atm-linea)]">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--atm-linea)] bg-zinc-50 px-3 py-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--atm-azul2)]">
+                    {campo.etiqueta}
+                  </p>
+                  <BotonCopiar obtenerTexto={() => textoObservaciones} />
+                </div>
+                <p className="whitespace-pre-wrap break-words px-3 py-2 text-sm text-zinc-700">
+                  {textoObservaciones}
+                </p>
+              </div>
+            ) : (
+              <CampoCerofilas
+                key={campo.id}
+                etiqueta={campo.etiqueta}
+                valor={valores[campo.id] ?? campo.valor}
+                original={campo.valor}
+              />
+            )
+          )}
         </div>
-        <PanelReferencia datos={bloqueCerofilas.referencia} />
+
+        <p className="mt-4 border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
+          Datos de usuario revisados.
+        </p>
+        {firmaCalificador && (
+          <div className="mt-2 rounded-lg border border-[var(--atm-linea)] bg-zinc-50 px-3 py-3 text-sm">
+            <p className="font-semibold text-zinc-900">{calificadorNombre}</p>
+            <p className="text-zinc-500">{calificadorProfesion ?? "Profesión no registrada"}</p>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-[var(--atm-linea)] px-5 py-4">

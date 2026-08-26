@@ -73,3 +73,5 @@ EES---VERCEL/
 - Antes de tocar una tabla o columna, revisa `BD/bd -- EES SUPABASE-VERCEL/BD.md` primero (es la fuente formal) y después `schema.dbml`.
 - Estos documentos son **vivos**: si cambias algo en el código de `src/app/api/*` o `src/lib/casos-mapper.ts`, actualiza `ARQUITECTURA-FRONTEND.md` en la misma sesión de trabajo para que no se desincronice otra vez (ya pasó antes: este archivo y `ARQUITECTURA-FRONTEND.md` describían todavía datos mock cuando el código ya pegaba a Supabase).
 - `src/data/casos.ts` y `src/data/usuarios.ts` hoy solo exportan **tipos** (`Caso`, `Usuario`, etc.), no datos — `usuarios.ts` ya lo dice en su propio comentario. `casos.ts` todavía arrastra un array `export const casos` de ejemplo que nadie importa (código muerto, no fuente de datos). No lo confundas con datos reales ni lo reactives sin revisar antes.
+
+

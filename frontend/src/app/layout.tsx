@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Grupo EES — Motor de Calificación",
+  title: "Grupo EES — Plataforma de Calificación",
   description: "Plataforma de calificación de trámites COMPIN — Grupo EES",
 };
 

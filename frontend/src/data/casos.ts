@@ -47,6 +47,11 @@ export interface ResolucionCalificador {
   motivoCodigo: string | null; // solo si decision = MODIFICA
   causaCodigo: string | null; // solo si decision = NO_EVALUABLE
   explicacion: string | null; // fundamento (MODIFICA) o detalle (NO_EVALUABLE)
+  /** Firma: quién resolvió (`calificaciones_finales.calificador_id`) y su profesión
+   *  (`profesiones.etiqueta`, ej. "Kinesiología"). Se muestra al pie de la vista de CeroFilas
+   *  y del histórico, y se incluye en el texto que se copia a CeroFilas. */
+  calificadorNombre: string | null;
+  calificadorProfesion: string | null;
 }
 
 export interface Caso {
@@ -74,10 +79,15 @@ export interface Caso {
    *  de la tabla comparativa. */
   idisIvadec: string | null;
   gradoIvadec: string | null;
-  /** IDIS/grado que propone el motor (datos_calificacion.idis / grado_discapacidad), para la
-   *  fila "Propuesta del motor" de la tabla comparativa. */
+  /** IDIS/grado de la propuesta sugerida (datos_calificacion.idis / grado_discapacidad), para
+   *  la fila "Propuesta de calificación sugerida" de la tabla comparativa. */
   idisMotor: string | null;
   gradoMotor: string | null;
+  /** Qué implica la propuesta sugerida respecto del IVADEC-CIF original: aumentar / mantener /
+   *  disminuir el porcentaje (`porcentaje sugerido` vs `porcentaje_ivadec_documento`). null si
+   *  falta alguno de los dos. Se muestra al calificador antes de resolver, como orientación —
+   *  distinto de `resolucion.direccion`, que es la dirección de SU decisión final. */
+  direccionSugerida: Direccion | null;
   resolucion: ResolucionCalificador | null;
   /** Botón "Ya lo subí" — independiente de la resolución, el calificador lo marca cuando ya
    *  subió el caso a CeroFilas por su cuenta. Puramente informativo para el admin. */
@@ -88,4 +98,10 @@ export interface Caso {
    * Es null si el bot todavía no generó el análisis para ese ID de trámite (falló en la IA).
    */
   analisis: AnalisisQA | null;
+  /**
+   * Snapshot de la ficha editada por el calificador (`casos.ficha_editada`, jsonb) — solo los
+   * campos que tocó, por id. Es la fuente de verdad en el histórico, donde `localStorage` del
+   * navegador puede no tener nada. null si el calificador nunca guardó una edición.
+   */
+  fichaEditada: Record<string, string> | null;
 }

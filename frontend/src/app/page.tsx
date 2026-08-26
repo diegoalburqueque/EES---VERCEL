@@ -40,7 +40,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-xl font-semibold text-zinc-900">Grupo EES</h1>
-          <p className="mt-0.5 text-sm font-medium text-zinc-700">Motor de Calificación</p>
+          <p className="mt-0.5 text-sm font-medium text-zinc-700">Plataforma de Calificación</p>
           <p className="mt-1 text-sm text-zinc-500">
             Ingresa con tu correo y contraseña
           </p>

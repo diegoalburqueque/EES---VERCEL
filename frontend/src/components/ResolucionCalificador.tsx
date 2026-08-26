@@ -38,10 +38,59 @@ function ChipDireccion({ direccion }: { direccion: string | null }) {
   );
 }
 
+const AVISO_DIRECCION: Record<string, { verbo: string; icono: string; estilo: string }> = {
+  SE_AUMENTA: { verbo: "aumentar", icono: "▲", estilo: "border-amber-300 bg-amber-50 text-amber-900" },
+  SE_MANTIENE: { verbo: "mantener", icono: "=", estilo: "border-emerald-300 bg-emerald-50 text-emerald-900" },
+  SE_DISMINUYE: { verbo: "disminuir", icono: "▼", estilo: "border-red-300 bg-red-50 text-red-900" },
+};
+
+/** Mensaje de orientación para el calificador (antes de resolver): qué implica la propuesta
+ *  sugerida respecto del IVADEC-CIF original — subir / mantener / bajar el porcentaje, con el
+ *  salto de grado si lo hay. */
+function AvisoDireccionSugerida({ caso }: { caso: Caso }) {
+  const dir = caso.direccionSugerida;
+  if (!dir) return null;
+  const t = AVISO_DIRECCION[dir];
+  const desde = caso.porcentajeIvadecDocumento;
+  const hasta = caso.propuesta.porcentajeIvadecIA;
+  const hayRango = desde !== null && hasta !== null;
+  const gradoCambia =
+    !!caso.gradoIvadec &&
+    !!caso.gradoMotor &&
+    caso.gradoIvadec.trim().toUpperCase() !== caso.gradoMotor.trim().toUpperCase();
+
+  return (
+    <div className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${t.estilo}`}>
+      <span aria-hidden className="mt-0.5 text-xs font-bold">{t.icono}</span>
+      <div>
+        <p>
+          {dir === "SE_MANTIENE" ? (
+            <>
+              La propuesta <span className="font-semibold">mantiene</span> el porcentaje del IVADEC-CIF
+              {hayRango && ` (${desde}%)`}
+            </>
+          ) : (
+            <>
+              La propuesta sugiere <span className="font-semibold">{t.verbo}</span> el porcentaje respecto del
+              IVADEC-CIF{hayRango && `: ${desde}% → ${hasta}%`}
+            </>
+          )}
+        </p>
+        {gradoCambia && (
+          <p className="mt-0.5 text-xs">
+            Grado: {caso.gradoIvadec} → {caso.gradoMotor}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Tabla comparativa IVADEC vs Motor (vs Calificador cuando ya está resuelto). */
 export function TablaComparativaIdis({ caso }: { caso: Caso }) {
   const resuelto = caso.estadoCalificacion === "CALIFICADO" && caso.resolucion;
   return (
+    <>
     <div className="overflow-hidden rounded-lg border border-[var(--atm-linea)]">
       <table className="w-full text-left text-sm">
         <thead className="bg-[var(--atm-th)] text-white">
@@ -62,7 +111,7 @@ export function TablaComparativaIdis({ caso }: { caso: Caso }) {
             <td className="px-3 py-2 text-zinc-700"><CeldaOVacio valor={caso.gradoIvadec} /></td>
           </tr>
           <tr>
-            <th className="px-3 py-2 font-medium text-zinc-500">Propuesta del motor</th>
+            <th className="px-3 py-2 font-medium text-zinc-500">Propuesta de calificación sugerida</th>
             <td className="px-3 py-2 font-semibold text-zinc-900"><CeldaOVacio valor={caso.idisMotor} /></td>
             <td className="px-3 py-2 font-semibold text-zinc-900">
               <CeldaOVacio
@@ -89,6 +138,8 @@ export function TablaComparativaIdis({ caso }: { caso: Caso }) {
         </div>
       )}
     </div>
+    {!resuelto && <AvisoDireccionSugerida caso={caso} />}
+    </>
   );
 }
 
@@ -162,6 +213,10 @@ export function PanelResolucion({
     setGuardando(true);
     setError(null);
     try {
+      // Aunque ratifique, si tocó algún campo de la ficha se persiste en casos.ficha_editada —
+      // así el histórico (que lee de la BD, no de localStorage) muestra lo que dejó.
+      const valoresEditados = leerValoresGuardados(caso.id);
+      if (valoresEditados) await guardarFicha(caso.id, valoresEditados);
       await confirmarPropuesta(caso.id, mr, reev);
       onResuelto();
     } catch (e) {
@@ -262,9 +317,9 @@ export function PanelResolucion({
 
       <div className="rounded-lg border-2 border-blue-200 bg-zinc-50 p-4">
         <p className="mb-3 text-sm text-zinc-700">
-          El motor ya resolvió el caso. Si estás de acuerdo, <span className="font-semibold">ratifica</span> y el
-          documento se emite tal cual. Si no, <span className="font-semibold">modifica</span> lo que corresponda y
-          fundaméntalo.
+          Ya hay una propuesta de calificación sugerida. Si estás de acuerdo,{" "}
+          <span className="font-semibold">ratifica</span> y el documento se emite tal cual. Si no,{" "}
+          <span className="font-semibold">modifica</span> lo que corresponda y fundaméntalo.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -431,7 +486,7 @@ export function PanelResolucion({
       {confirmando === "ratificar" && (
         <Modal titulo="Confirmar ratificación" onCerrar={() => setConfirmando("ninguna")}>
           <p className="text-sm text-zinc-700">
-            Vas a ratificar la propuesta del motor y cerrar el trámite{" "}
+            Vas a ratificar la propuesta de calificación sugerida y cerrar el trámite{" "}
             <span className="font-semibold">{caso.idTramite}</span>. El documento se emite tal cual, sin
             cambios.
           </p>
@@ -531,6 +586,13 @@ export function ResolucionRegistrada({ caso }: { caso: Caso }) {
           <div className="col-span-2">
             <p className="text-xs text-zinc-400">{r.decision === "NO_EVALUABLE" ? "Detalle" : "Fundamento"}</p>
             <p className="whitespace-pre-line text-zinc-800">{r.explicacion}</p>
+          </div>
+        )}
+        {r.calificadorNombre && (
+          <div className="col-span-2 border-t border-[var(--atm-linea)] pt-3">
+            <p className="text-xs text-zinc-400">Calificado por</p>
+            <p className="font-semibold text-zinc-900">{r.calificadorNombre}</p>
+            <p className="text-zinc-500">{r.calificadorProfesion ?? "Profesión no registrada"}</p>
           </div>
         )}
       </div>

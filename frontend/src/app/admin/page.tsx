@@ -409,10 +409,10 @@ export default function AdminPage() {
 
               <div>
                 <h2 className="mb-3 text-sm font-medium text-zinc-500">
-                  Propuesta IA vs. decisión del calificador
+                  Propuesta sugerida vs. decisión del calificador
                 </h2>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <Tarjeta valor={metricas.confirmados} etiqueta="Confirmados tal cual (IA)" />
+                  <Tarjeta valor={metricas.confirmados} etiqueta="Confirmados tal cual" />
                   <Tarjeta valor={metricas.modificados} etiqueta="Modificados por calificador" />
                   <Tarjeta
                     valor={
@@ -739,7 +739,7 @@ export default function AdminPage() {
               <p className="text-zinc-800">{etiquetaFlujo(casoAVer.estadoCaso)}</p>
             </div>
             <div>
-              <p className="text-xs text-zinc-400">% propuesto por el motor</p>
+              <p className="text-xs text-zinc-400">% de la propuesta sugerida</p>
               <p className="text-zinc-800">{casoAVer.propuesta.porcentajeIvadecIA}%</p>
             </div>
             <div>
@@ -762,7 +762,7 @@ export default function AdminPage() {
 
           <div className="border-b border-[var(--atm-linea)] px-5 py-4">
             <h2 className="mb-3 border-l-4 border-[var(--atm-azul2)] pl-2 text-sm font-semibold text-[var(--atm-azul)]">
-              Propuesta del motor
+              Propuesta de calificación sugerida
             </h2>
             <TablaComparativaIdis caso={casoAVer} />
           </div>
@@ -775,6 +775,7 @@ export default function AdminPage() {
               casoId={casoAVer.id}
               editable={false}
               documentos={casoAVer.propuesta.documentos}
+              fichaEditada={casoAVer.fichaEditada}
             />
           ) : (
             <div className="px-5 py-4">
