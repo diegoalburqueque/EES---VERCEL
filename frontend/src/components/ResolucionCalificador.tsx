@@ -7,6 +7,7 @@ import { leerValoresGuardados } from "@/components/FichaEditable";
 import { Modal } from "@/components/Modal";
 import type { Caso, ReevaluacionFinal } from "@/data/casos";
 import { TABLA_IDIS, MOTIVOS_MODIFICACION, CAUSAS_NO_EVALUABLE, OPCIONES_REEV } from "@/data/resolucion-catalogos";
+import { profesionParaFirma } from "@/lib/profesion-firma"; // NOMBRE_GENERO
 
 /** Celda "No disponible" en rojo en vez de un guion gris — un dato ausente debe llamar la
  *  atención del calificador, no perderse como si fuera un valor normal. */
@@ -592,7 +593,10 @@ export function ResolucionRegistrada({ caso }: { caso: Caso }) {
           <div className="col-span-2 border-t border-[var(--atm-linea)] pt-3">
             <p className="text-xs text-zinc-400">Calificado por</p>
             <p className="font-semibold text-zinc-900">{r.calificadorNombre}</p>
-            <p className="text-zinc-500">{r.calificadorProfesion ?? "Profesión no registrada"}</p>
+            {/* NOMBRE_GENERO — profesión ajustada al género del calificador (inferido del nombre). */}
+            <p className="text-zinc-500">
+              {profesionParaFirma(r.calificadorNombre, r.calificadorProfesion) ?? "Profesión no registrada"}
+            </p>
           </div>
         )}
       </div>

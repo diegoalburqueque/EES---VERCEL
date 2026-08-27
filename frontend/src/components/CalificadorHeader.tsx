@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSesion } from "@/components/SesionProvider";
+import { rolParaFirma } from "@/lib/profesion-firma"; // NOMBRE_GENERO
 
 export function CalificadorHeader() {
   const { sesion, cerrarSesion } = useSesion();
@@ -18,7 +19,10 @@ export function CalificadorHeader() {
       <header className="flex items-center justify-between border-b border-[var(--atm-linea)] bg-white px-6 py-4">
         <div>
           <h1 className="text-base font-semibold text-zinc-900">Plataforma de Calificación</h1>
-          <p className="text-sm text-zinc-500">{sesion.nombreCompleto} · Calificador</p>
+          {/* NOMBRE_GENERO — "Calificador" / "Calificadora" según el nombre. */}
+          <p className="text-sm text-zinc-500">
+            {sesion.nombreCompleto} · {rolParaFirma(sesion.nombreCompleto, sesion.rol)}
+          </p>
         </div>
         <button
           onClick={() => cerrarSesion()}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AnalisisQA } from "@/data/analisis";
 import type { DocumentoCaso, ResolucionCalificador } from "@/data/casos";
 import { GuiaClinicaIBF } from "@/components/GuiaClinicaIBF";
+import { profesionParaFirma } from "@/lib/profesion-firma"; // NOMBRE_GENERO
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 
 /**
@@ -1181,7 +1182,13 @@ function textoObservacionesCerofilas(
   ];
 
   if (calificadorNombre) {
-    lineas.push("", "DATOS DE USUARIO REVISADOS", calificadorNombre, calificadorProfesion ?? "");
+    // NOMBRE_GENERO — profesión ajustada al género del calificador (inferido del nombre).
+    lineas.push(
+      "",
+      "DATOS DE USUARIO REVISADOS",
+      calificadorNombre,
+      profesionParaFirma(calificadorNombre, calificadorProfesion) ?? ""
+    );
   }
 
   return lineas.join("\n");
@@ -1252,8 +1259,10 @@ export function PantallaCerofilas({
   }, [bloques, casoId, modificado, porcentajeFinal, fichaEditada]);
 
   // Firma que va al pie de la pantalla y también al final del texto que se pega en CeroFilas.
+  // NOMBRE_GENERO — profesión ajustada al género del calificador (inferido del nombre).
+  const profesionFirma = profesionParaFirma(calificadorNombre, calificadorProfesion);
   const firmaCalificador = calificadorNombre
-    ? `${calificadorNombre}\n${calificadorProfesion ?? "Profesión no registrada"}`
+    ? `${calificadorNombre}\n${profesionFirma ?? "Profesión no registrada"}`
     : null;
 
   // "Observaciones Datos Relevantes de Calificación": todo el informe + PROPUESTA con la
@@ -1341,7 +1350,8 @@ export function PantallaCerofilas({
         {firmaCalificador && (
           <div className="mt-2 rounded-lg border border-[var(--atm-linea)] bg-zinc-50 px-3 py-3 text-sm">
             <p className="font-semibold text-zinc-900">{calificadorNombre}</p>
-            <p className="text-zinc-500">{calificadorProfesion ?? "Profesión no registrada"}</p>
+            {/* NOMBRE_GENERO */}
+            <p className="text-zinc-500">{profesionFirma ?? "Profesión no registrada"}</p>
           </div>
         )}
       </div>
