@@ -29,7 +29,7 @@ function etiquetaFlujo(estadoCaso: string): string {
   return estadoCaso.replace(/_/g, " ");
 }
 
-type Vista = "dashboard" | "todos" | "no-aptos" | "devueltos" | "calificadores";
+type Vista = "dashboard" | "todos" | "no-aptos" | "devueltos" | "calificadores" | "metricas";
 type FiltroEstadoAdmin = "TODOS" | EstadoChecklist | "DEVUELTO";
 type TamanoPagina = 20 | 50 | "TODOS";
 
@@ -133,6 +133,217 @@ function FormularioUsuario({
         {guardando ? "Guardando..." : modo === "crear" ? "Crear calificador" : "Guardar cambios"}
       </button>
     </form>
+  );
+}
+
+interface ResumenMetricas {
+  casosCerrados: number;
+  tiempoActivoMedioMin: number;
+  tiempoActivoMedianaMin: number;
+  casosPorHora: number;
+  aperturaCierreMedioHoras: number | null;
+  numSesionesMedio: number;
+  casosModificados: number;
+  pctModificados: number;
+  casosBloqueadosQa: number;
+  pctBloqueadosQa: number;
+}
+interface GrupoMetricas extends ResumenMetricas {
+  clave: string;
+  etiqueta: string;
+}
+interface RespuestaMetricas {
+  rango: { desde: string; hasta: string };
+  global: ResumenMetricas;
+  porCalificador: GrupoMetricas[];
+  porVersionMotor: GrupoMetricas[];
+  cohortes: { corte: string; antes: ResumenMetricas; desde: ResumenMetricas } | null;
+}
+
+const HOY_ISO = new Date().toISOString().slice(0, 10);
+const HACE_90_ISO = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+
+/** Tabla de métricas por grupo (calificador o versión del motor). */
+function TablaGrupos({ titulo, filas }: { titulo: string; filas: GrupoMetricas[] }) {
+  return (
+    <div>
+      <h2 className="mb-3 text-sm font-medium text-zinc-500">{titulo}</h2>
+      {filas.length === 0 ? (
+        <p className="text-sm text-zinc-400">Sin datos en el rango seleccionado.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-[var(--atm-linea)]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[var(--atm-th)] text-white">
+              <tr>
+                <th className="px-4 py-2 font-medium">{titulo.includes("motor") ? "Versión" : "Calificador"}</th>
+                <th className="px-4 py-2 font-medium">Casos</th>
+                <th className="px-4 py-2 font-medium">Min/caso (mediana)</th>
+                <th className="px-4 py-2 font-medium">Casos/hora</th>
+                <th className="px-4 py-2 font-medium">% modificados</th>
+                <th className="px-4 py-2 font-medium">% bloq. QA</th>
+                <th className="px-4 py-2 font-medium">Sesiones/caso</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {filas.map((f) => (
+                <tr key={f.clave}>
+                  <td className="px-4 py-3 text-zinc-700">{f.etiqueta}</td>
+                  <td className="px-4 py-3 text-zinc-700">{f.casosCerrados}</td>
+                  <td className="px-4 py-3 text-zinc-700">
+                    {f.tiempoActivoMedioMin} <span className="text-zinc-400">({f.tiempoActivoMedianaMin})</span>
+                  </td>
+                  <td className="px-4 py-3 text-zinc-700">{f.casosPorHora}</td>
+                  <td className="px-4 py-3 text-zinc-700">{f.pctModificados}%</td>
+                  <td className="px-4 py-3 text-zinc-700">{f.pctBloqueadosQa}%</td>
+                  <td className="px-4 py-3 text-zinc-500">{f.numSesionesMedio}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Vista de métricas de productividad (Revisión 13). Todo sale de GET /api/metricas. */
+function PanelMetricas({ calificadores }: { calificadores: Usuario[] }) {
+  const [desde, setDesde] = useState(HACE_90_ISO);
+  const [hasta, setHasta] = useState(HOY_ISO);
+  const [calificador, setCalificador] = useState("");
+  const [corte, setCorte] = useState("");
+  const [datos, setDatos] = useState<RespuestaMetricas | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    const params = new URLSearchParams({ desde, hasta });
+    if (calificador) params.set("calificador", calificador);
+    if (corte) params.set("corte", corte);
+    fetch(`/api/metricas?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then((json: RespuestaMetricas) => {
+        if (!vivo) return;
+        setDatos(json);
+        setError(null);
+      })
+      .catch(() => {
+        if (vivo) setError("No se pudieron cargar las métricas.");
+      })
+      .finally(() => {
+        if (vivo) setCargando(false);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [desde, hasta, calificador, corte]);
+
+  const g = datos?.global;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--atm-linea)] bg-zinc-50 px-4 py-3 text-sm">
+        <label className="flex flex-col gap-1 text-zinc-500">
+          Desde
+          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+            className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700" />
+        </label>
+        <label className="flex flex-col gap-1 text-zinc-500">
+          Hasta
+          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+            className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700" />
+        </label>
+        <label className="flex flex-col gap-1 text-zinc-500">
+          Calificador
+          <select value={calificador} onChange={(e) => setCalificador(e.target.value)}
+            className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700">
+            <option value="">Todos</option>
+            {calificadores.map((u) => (
+              <option key={u.id} value={u.id}>{u.nombreCompleto}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-zinc-500">
+          Cohorte (corte)
+          <input type="date" value={corte} onChange={(e) => setCorte(e.target.value)}
+            className="rounded-lg border border-[var(--atm-linea)] px-2 py-1 text-zinc-700" />
+        </label>
+      </div>
+
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+      {cargando && <p className="text-sm text-zinc-500">Cargando métricas...</p>}
+
+      {!cargando && g && (
+        <>
+          <div>
+            <h2 className="mb-3 text-sm font-medium text-zinc-500">
+              Global · {datos!.rango.desde} a {datos!.rango.hasta}
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Tarjeta valor={g.casosCerrados} etiqueta="Casos resueltos" />
+              <Tarjeta valor={g.casosPorHora} etiqueta="Casos por hora (tiempo activo)" />
+              <Tarjeta valor={`${g.tiempoActivoMedioMin} min`} etiqueta="Tiempo medio por caso" />
+              <Tarjeta valor={`${g.tiempoActivoMedianaMin} min`} etiqueta="Mediana por caso" />
+              <Tarjeta
+                valor={g.aperturaCierreMedioHoras !== null ? `${g.aperturaCierreMedioHoras} h` : "—"}
+                etiqueta="Apertura → cierre (promedio)"
+              />
+              <Tarjeta valor={g.numSesionesMedio} etiqueta="Sesiones por caso" />
+              <Tarjeta valor={`${g.pctModificados}%`} etiqueta={`Modificados (${g.casosModificados})`} />
+              <Tarjeta valor={`${g.pctBloqueadosQa}%`} etiqueta={`Bloqueados por QA (${g.casosBloqueadosQa})`} />
+            </div>
+          </div>
+
+          {datos!.cohortes && (
+            <div>
+              <h2 className="mb-3 text-sm font-medium text-zinc-500">
+                Comparación de cohortes · corte {datos!.cohortes.corte}
+              </h2>
+              <div className="overflow-x-auto rounded-xl border border-[var(--atm-linea)]">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-[var(--atm-th)] text-white">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Cohorte</th>
+                      <th className="px-4 py-2 font-medium">Casos</th>
+                      <th className="px-4 py-2 font-medium">Casos/hora</th>
+                      <th className="px-4 py-2 font-medium">Min/caso</th>
+                      <th className="px-4 py-2 font-medium">% modificados</th>
+                      <th className="px-4 py-2 font-medium">% bloq. QA</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {([["Antes del corte", datos!.cohortes.antes], ["Desde el corte", datos!.cohortes.desde]] as const).map(
+                      ([nombre, c]) => (
+                        <tr key={nombre}>
+                          <td className="px-4 py-3 text-zinc-700">{nombre}</td>
+                          <td className="px-4 py-3 text-zinc-700">{c.casosCerrados}</td>
+                          <td className="px-4 py-3 text-zinc-700">{c.casosPorHora}</td>
+                          <td className="px-4 py-3 text-zinc-700">{c.tiempoActivoMedioMin}</td>
+                          <td className="px-4 py-3 text-zinc-700">{c.pctModificados}%</td>
+                          <td className="px-4 py-3 text-zinc-700">{c.pctBloqueadosQa}%</td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <TablaGrupos titulo="Por calificador" filas={datos!.porCalificador} />
+          <TablaGrupos titulo="Por versión del motor" filas={datos!.porVersionMotor} />
+
+          <p className="text-xs text-zinc-400">
+            El &quot;tiempo activo&quot; descarta los períodos de inactividad &gt; 3 min. Los casos anteriores
+            a la Revisión 13 no tienen tiempo registrado y no aportan a los promedios.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -323,19 +534,29 @@ export default function AdminPage() {
       NO_APTO: casos.filter((c) => c.estadoChecklist === "NO_APTO").length,
     };
 
-    const porCalificador = new Map<string, { nombre: string; asignados: number; calificados: number }>();
+    // "Bandeja" = lo que el calificador realmente ve y tiene que trabajar: casos asignados
+    // que no son NO_APTO (esos van solo a admin). "Resueltos" = calificados o devueltos como
+    // no evaluables. "Pendientes" = lo que le falta hacer AHORA.
+    const porCalificador = new Map<
+      string,
+      { nombre: string; bandeja: number; resueltos: number; pendientes: number }
+    >();
     for (const c of casos) {
       if (!c.calificadorAsignadoId || !c.calificadorNombre) continue;
+      if (c.estadoChecklist === "NO_APTO") continue;
       const fila = porCalificador.get(c.calificadorAsignadoId) ?? {
         nombre: c.calificadorNombre,
-        asignados: 0,
-        calificados: 0,
+        bandeja: 0,
+        resueltos: 0,
+        pendientes: 0,
       };
-      fila.asignados += 1;
-      if (c.estadoCalificacion === "CALIFICADO") fila.calificados += 1;
+      fila.bandeja += 1;
+      const resuelto = c.estadoCalificacion === "CALIFICADO" || c.estadoCaso === "RECHAZADO_CALIFICADOR";
+      if (resuelto) fila.resueltos += 1;
+      else fila.pendientes += 1;
       porCalificador.set(c.calificadorAsignadoId, fila);
     }
-    const rankingCalificadores = [...porCalificador.values()].sort((a, b) => b.asignados - a.asignados);
+    const rankingCalificadores = [...porCalificador.values()].sort((a, b) => b.pendientes - a.pendientes);
 
     return {
       total: casos.length,
@@ -374,6 +595,7 @@ export default function AdminPage() {
             ["todos", "Todos los casos"],
             ["no-aptos", "No aptos"],
             ["devueltos", "Devueltos"],
+            ["metricas", "Métricas"],
             ["calificadores", "Calificadores"],
           ] as [Vista, string][]
         ).map(([valor, etiqueta]) => (
@@ -452,8 +674,9 @@ export default function AdminPage() {
                       <thead className="bg-[var(--atm-th)] text-white">
                         <tr>
                           <th className="px-4 py-2 font-medium">Calificador</th>
-                          <th className="px-4 py-2 font-medium">Asignados</th>
-                          <th className="px-4 py-2 font-medium">Calificados</th>
+                          <th className="px-4 py-2 font-medium">En bandeja</th>
+                          <th className="px-4 py-2 font-medium">Pendientes ahora</th>
+                          <th className="px-4 py-2 font-medium">Resueltos</th>
                           <th className="px-4 py-2 font-medium">Avance</th>
                         </tr>
                       </thead>
@@ -461,10 +684,19 @@ export default function AdminPage() {
                         {metricas.rankingCalificadores.map((fila) => (
                           <tr key={fila.nombre}>
                             <td className="px-4 py-3 text-zinc-700">{fila.nombre}</td>
-                            <td className="px-4 py-3 text-zinc-700">{fila.asignados}</td>
-                            <td className="px-4 py-3 text-zinc-700">{fila.calificados}</td>
+                            <td className="px-4 py-3 text-zinc-700">{fila.bandeja}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                  fila.pendientes > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"
+                                }`}
+                              >
+                                {fila.pendientes}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-zinc-700">{fila.resueltos}</td>
                             <td className="px-4 py-3 text-zinc-500">
-                              {Math.round((fila.calificados / fila.asignados) * 100)}%
+                              {fila.bandeja > 0 ? Math.round((fila.resueltos / fila.bandeja) * 100) : 0}%
                             </td>
                           </tr>
                         ))}
@@ -475,6 +707,8 @@ export default function AdminPage() {
               </div>
             </div>
           )
+        ) : vista === "metricas" ? (
+          <PanelMetricas calificadores={calificadores} />
         ) : vista === "calificadores" ? (
           <div>
             <div className="mb-4 flex items-center justify-between">

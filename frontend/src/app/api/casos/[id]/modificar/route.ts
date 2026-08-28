@@ -16,6 +16,7 @@ import { obtenerSesionServidor } from "@/lib/session-server";
 import { calcularDireccion, esReevValida } from "@/lib/resolucion";
 import { buscarValorIdis, MOTIVOS_MODIFICACION } from "@/data/resolucion-catalogos";
 import { resolverComparativaIdis } from "@/lib/comparativa-idis";
+import { cerrarRevision } from "@/lib/metricas/revision-server";
 import type { AnalisisQA } from "@/data/analisis";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -110,6 +111,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
        VALUES ($1, $2, $3, $4, $5)`,
       [id, sesion.id, estadoAnterior.rows[0].estado_caso_id, nuevoEstado.rows[0].id, modificado ? "Calificador modificó el % propuesto por el motor de EES" : null]
     );
+
+    await cerrarRevision(client, id, sesion.id);
 
     await client.query("COMMIT");
     return NextResponse.json({ ok: true });

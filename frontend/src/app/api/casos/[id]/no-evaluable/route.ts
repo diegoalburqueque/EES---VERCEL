@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { obtenerSesionServidor } from "@/lib/session-server";
 import { CAUSAS_NO_EVALUABLE } from "@/data/resolucion-catalogos";
+import { cerrarRevision } from "@/lib/metricas/revision-server";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const sesion = await obtenerSesionServidor();
@@ -69,6 +70,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
        VALUES ($1, $2, $3, $4, $5)`,
       [id, sesion.id, estadoAnterior.rows[0].estado_caso_id, nuevoEstado.rows[0].id, `No evaluable: ${causaCodigo}`]
     );
+
+    await cerrarRevision(client, id, sesion.id);
 
     await client.query("COMMIT");
     return NextResponse.json({ ok: true });

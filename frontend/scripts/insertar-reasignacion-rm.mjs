@@ -1,10 +1,12 @@
-// Inserta un lote puntual de casos de MAESTRO_RM en `casos` + `documentos_caso`,
-// bajando el analysis.json REAL de Drive por caso, y asignándolos a calificadores.
+// Segundo lote / reasignación: inserta en `casos` + `documentos_caso` + historial
+// los IDs de MAESTRO_RM que YA tienen analysis.json, asignándolos a 3 calificadores.
 //
-//   node scripts/insertar-ids-rm.mjs           (inserta de verdad)
-//   node scripts/insertar-ids-rm.mjs --dry     (solo muestra qué haría, no toca la BD)
+//   node scripts/insertar-reasignacion-rm.mjs --dry   (muestra qué haría, no toca la BD)
+//   node scripts/insertar-reasignacion-rm.mjs         (inserta de verdad)
 //
 // Idempotente: ON CONFLICT (id_tramite) DO NOTHING. Transacción por caso.
+// Los IDs que aún no están en MAESTRO_RM o cuyo bot falló se SALTAN y se listan al final
+// (no es tarea de este script procesarlos en el bot).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,11 +17,21 @@ import { google } from "googleapis";
 const SPREADSHEET_ID = "13xzr6FICnBZH_pdX585n6fV51ZULR_Y5p7ot7HWvcN8";
 const DRY = process.argv.includes("--dry");
 
-// ── Reparto: 6 casos por calificador ────────────────────────────────────────
+// ── Reparto solicitado (la planilla de reasignación) ───────────────────────
 const ASIGNACION = {
-  "carolina.calificadora@grupoees.cl": ["32669141", "33444284", "32773812", "33454915", "33433197", "33436393"],
-  "pablo.campos@grupoees.cl":          ["33469184", "33474882", "33470259", "33479973", "32971229", "33463767"],
-  "cecilia.uribe@grupoees.cl":         ["32697746", "33047848", "32922083", "33320122", "33464530", "33471800"],
+  "cecilia.uribe@grupoees.cl": [
+    "33448789", "32732357", "33461392", "33471371", "33174701", "33463976",
+    "33457585", "33434696", "33640189", "32494047", "33482683", "33468488",
+  ],
+  "pablo.campos@grupoees.cl": [
+    "33469411", "33479142", "33058132", "33483472", "33474985", "33340496",
+    "33477507", "33472101", "33486859", "33484093", "33491034", "33488187",
+  ],
+  "carolina.calificadora@grupoees.cl": [
+    "33650972", "33217547", "33464897", "33461904", "33801410", "33785405",
+    "33762047", "33468101", "33517496", "33594893", "33483519", "33483727",
+    "33483852", "33484242",
+  ],
 };
 const ID_A_CORREO = new Map();
 for (const [correo, ids] of Object.entries(ASIGNACION)) for (const id of ids) ID_A_CORREO.set(id, correo);
@@ -56,7 +68,6 @@ function entero(v) {
   return Number.isFinite(n) ? n : null;
 }
 function fechaISO(v) {
-  // "25-12-2011" (DD-MM-YYYY) -> "2011-12-25"; devuelve null si no parsea
   if (!v) return null;
   const m = String(v).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
   if (!m) return null;
@@ -113,21 +124,25 @@ function mapear(j, fila, col) {
     id_etapa: s(col(fila, "ID_ETAPA")),
     rut: s(col(fila, "RUT")) ?? s(j.fuentes_duras_admisibilidad?.cedula?.rut_usuario),
     nombre_completo: s(col(fila, "NOMBRE_COMPLETO")) ?? s(meta.nombre_completo_usuario),
+    // Prioridad: fecha de nacimiento canónica de edad_calculada (ISO); si no, la de la ficha.
     fecha_nacimiento: noConsta(ec.fecha_nacimiento_usada) ?? fechaISO(ident.fecha_nacimiento),
     es_menor_de_edad: esMenor,
 
+    // edad_calculada
     edad_calc_texto: noConsta(ec.texto),
     edad_calc_total_meses: typeof ec.total_meses === "number" ? ec.total_meses : null,
     edad_calc_fecha_referencia: noConsta(ec.fecha_referencia),
     edad_calc_fuente_fecha_nac: noConsta(ec.fuente_fecha_nacimiento),
     edad_calc_advertencia: noConsta(ec.advertencia),
 
+    // profesional_ivadec
     ivadec_prof_nombre: noConsta(pi.nombre_completo),
     ivadec_prof_run: noConsta(pi.run),
     ivadec_prof_run_dv_valido: typeof pi.run_dv_valido === "boolean" ? pi.run_dv_valido : null,
     ivadec_prof_profesion: noConsta(pi.profesion),
     ivadec_prof_advertencia: noConsta(pi.advertencia),
 
+    // fuentes_duras_calificacion.ibf.descripcion_estado_funcional_ibf (transcripción literal)
     ibf_descripcion_estado_funcional_literal: noConsta(ibfDuro.descripcion_estado_funcional_ibf),
     requiere_representante: chk.requiere_representante === true,
     representante_presente: repPresente,
@@ -283,19 +298,20 @@ try {
     if (id) porId.set(id, f);
   }
 
-  let insertados = 0, saltados = 0, fallidos = 0, docsTotal = 0;
+  let insertados = 0, saltados = 0, docsTotal = 0;
+  const noEnSheet = [], sinJson = [];
   const porCal = {};
 
   for (const id of TODOS_IDS) {
     const correo = ID_A_CORREO.get(id);
     const fila = porId.get(id);
-    if (!fila) { console.error(`❌ ${id}: no está en MAESTRO_RM`); fallidos++; continue; }
+    if (!fila) { noEnSheet.push(id); continue; }
+    if (!col(fila, "LINK_ANALISIS_JSON")) { sinJson.push(`${id} (${col(fila, "LAST_ERROR_CODE") || col(fila, "ESTADO_IA") || "sin JSON"})`); continue; }
 
     try {
       const j = await bajarJson(col(fila, "LINK_ANALISIS_JSON"));
       if (!j || !j.checklist_admisibilidad_rm) {
-        console.error(`❌ ${id}: analysis.json sin checklist_admisibilidad_rm`);
-        fallidos++;
+        sinJson.push(`${id} (analysis.json sin checklist)`);
         continue;
       }
       const m = mapear(j, fila, col);
@@ -325,7 +341,7 @@ try {
       const ph = valores.map((_, i) => `$${i + 1}`).join(", ");
       const r = await cliente.query(
         `INSERT INTO casos (${columnas.join(", ")}) VALUES (${ph})
-         ON CONFLICT (id_tramite) DO NOTHING RETURNING id, calificador_asignado_id`,
+         ON CONFLICT (id_tramite) DO NOTHING RETURNING id`,
         valores
       );
       if (r.rowCount === 0) {
@@ -336,7 +352,6 @@ try {
       }
       const casoId = r.rows[0].id;
 
-      // fecha_asignacion (el INSERT ya puso calificador_asignado_id)
       await cliente.query("UPDATE casos SET fecha_asignacion = now() WHERE id = $1", [casoId]);
 
       for (const [tipo, link] of docs) {
@@ -347,10 +362,9 @@ try {
         docsTotal++;
       }
 
-      // Historial de creación (estado_anterior_id NULL = alta)
       await cliente.query(
         `INSERT INTO historial_estados_caso (caso_id, usuario_id, estado_anterior_id, estado_nuevo_id, motivo)
-         VALUES ($1, NULL, NULL, $2, 'Alta desde MAESTRO_RM + asignación')`,
+         VALUES ($1, NULL, NULL, $2, 'Alta desde MAESTRO_RM + reasignación 2do lote')`,
         [casoId, borradorId]
       );
 
@@ -361,19 +375,20 @@ try {
     } catch (e) {
       try { await cliente.query("ROLLBACK"); } catch {}
       console.error(`❌ ${id}: ${e.message}`);
-      fallidos++;
     }
   }
 
-  console.log(`\n${DRY ? "[DRY] " : ""}Insertados: ${insertados} | Saltados (duplicado): ${saltados} | Fallidos: ${fallidos} | Documentos: ${docsTotal}`);
+  console.log(`\n${DRY ? "[DRY] " : ""}Insertados: ${insertados} | Saltados (ya existían): ${saltados} | Documentos: ${docsTotal}`);
   console.log("Por calificador:", porCal);
+  if (sinJson.length) console.log(`\n⏭  Con fila en MAESTRO_RM pero SIN analysis.json (bot falló, no se insertan): ${sinJson.length}\n   ${sinJson.join("\n   ")}`);
+  if (noEnSheet.length) console.log(`\n⏭  Todavía NO están en MAESTRO_RM (no se insertan): ${noEnSheet.length}\n   ${noEnSheet.join(", ")}`);
 
   if (!DRY) {
     const chk = await cliente.query(
       `SELECT COALESCE(estado_checklist::text,'(null)') AS estado_checklist, count(*)::int
        FROM casos GROUP BY estado_checklist ORDER BY estado_checklist`
     );
-    console.log("\ncasos por estado_checklist:");
+    console.log("\ncasos por estado_checklist (total en BD):");
     console.table(chk.rows);
   }
 } finally {

@@ -14,6 +14,7 @@ import {
   type CajaResolucion,
 } from "@/components/ResolucionCalificador";
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
+import { useRevisionTracker } from "@/components/useRevisionTracker";
 import { formatearFecha } from "@/lib/fechas";
 
 export default function DetalleCasoPage() {
@@ -40,6 +41,17 @@ export default function DetalleCasoPage() {
   useEffect(() => {
     if (id) cargarDetalleCaso(id);
   }, [id, cargarDetalleCaso]);
+
+  // Métricas de productividad (Revisión 13): mide el tiempo de revisión mientras el
+  // calificador tiene abierto un caso propio y sin resolver. No corre en el histórico,
+  // ni sobre la pantalla de CeroFilas, ni sobre casos ajenos / NO_APTO.
+  const revisionActiva =
+    !!caso &&
+    caso.calificadorAsignadoId === sesion.id &&
+    caso.estadoChecklist !== "NO_APTO" &&
+    caso.estadoCalificacion !== "CALIFICADO" &&
+    searchParams.get("cerofilas") !== "1";
+  useRevisionTracker(caso?.id, revisionActiva);
 
   if (cargando) {
     return (
