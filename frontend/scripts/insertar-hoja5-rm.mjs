@@ -1,10 +1,18 @@
-// Inserta un lote puntual de casos de MAESTRO_RM en `casos` + `documentos_caso`,
-// bajando el analysis.json REAL de Drive por caso, y asignándolos a calificadores.
+// Inserción masiva del lote de "Hoja 5": ~930 casos de RM en `casos` +
+// `documentos_caso` + `historial_estados_caso`, cada uno asignado al calificador
+// que dice la propia Hoja 5 (columna `calificador`).
 //
-//   node scripts/insertar-ids-rm.mjs           (inserta de verdad)
-//   node scripts/insertar-ids-rm.mjs --dry     (solo muestra qué haría, no toca la BD)
+//   node scripts/insertar-hoja5-rm.mjs --dry                 muestra qué haría, NO toca la BD
+//   node scripts/insertar-hoja5-rm.mjs --dry --calificador "Pablo Campos"
+//   node scripts/insertar-hoja5-rm.mjs --limit 20            inserta solo los primeros 20 (prueba)
+//   node scripts/insertar-hoja5-rm.mjs                       inserta todo
+//
+// Fuentes:
+//   - IDs + asignación  → pestaña "Hoja 5"  (Fecha carga | ID | calificador | Usuario)
+//   - datos del caso    → pestaña "MAESTRO_RM" (se baja el analysis.json de LINK_ANALISIS_JSON)
 //
 // Idempotente: ON CONFLICT (id_tramite) DO NOTHING. Transacción por caso.
+// IDs que no están en MAESTRO_RM o cuyo bot falló → se SALTAN y se listan al final.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -14,16 +22,41 @@ import { google } from "googleapis";
 
 const SPREADSHEET_ID = "13xzr6FICnBZH_pdX585n6fV51ZULR_Y5p7ot7HWvcN8";
 const DRY = process.argv.includes("--dry");
+const LIMIT = (() => { const i = process.argv.indexOf("--limit"); return i !== -1 ? parseInt(process.argv[i + 1], 10) : null; })();
+const SOLO_CAL = (() => { const i = process.argv.indexOf("--calificador"); return i !== -1 ? process.argv[i + 1] : null; })();
 
-// ── Reparto: 6 casos por calificador ────────────────────────────────────────
-const ASIGNACION = {
-  "carolina.calificadora@grupoees.cl": ["32669141", "33444284", "32773812", "33454915", "33433197", "33436393"],
-  "pablo.campos@grupoees.cl":          ["33469184", "33474882", "33470259", "33479973", "32971229", "33463767"],
-  "cecilia.uribe@grupoees.cl":         ["32697746", "33047848", "32922083", "33320122", "33464530", "33471800"],
+// ── Mapa: nombre EXACTO como aparece en Hoja 5 → correo del usuario en la BD ──
+// (23 son match limpio; 3 tienen typo/nombre parcial en la Hoja 5, resueltos abajo)
+// ⚠️ "Carolina Fernandez" — la BD tiene DOS: carolina.fernandez@ (Fernandez Pizarro)
+//     y carolina.calificadora@ (Fernández, cuenta vieja de prueba). Se usa la primera.
+//     CONFIRMAR con el equipo antes de correr sin --dry.
+const NOMBRE_A_CORREO = {
+  "Carla Flores Riveo":          "carla.flores@grupoees.cl",     // Hoja 5 dice "Riveo", BD "Riveros"
+  "Carla Herrera":               "carla.herrera@grupoees.cl",
+  "Carolina Fernandez":          "carolina.fernandez@grupoees.cl", // ⚠️ ver nota
+  "Catalina Caro":               "catalina.caro@grupoees.cl",
+  "Cecilia Uribe Correa":        "cecilia.uribe@grupoees.cl",
+  "Flavia Durán Gutierrez":      "flavia.duran@grupoees.cl",
+  "Francisca Barrueto Cabañas":  "francisca.barrueto@grupoees.cl",
+  "Francisca Guzmán Pizarro":    "francisca.guzman@grupoees.cl",
+  "Guisella Cifuentes Martínez": "guisella.cifuentes@grupoees.cl",
+  "Ignacio Castro Mellado":      "jose.castro@grupoees.cl",      // BD: "José Ignacio Castro Mellado"
+  "Juan Arriagada Chaparro":     "juan.arriagada@grupoees.cl",
+  "Karen Zurita Osses":          "karen.zurita@grupoees.cl",
+  "Leonardo Marilao":            "leonardo.marilao@grupoees.cl",
+  "Macarena Rodríguez Ortega":   "macarena.rodriguez@grupoees.cl",
+  "María Constanza Quinteros":   "maria.constanza@grupoees.cl",
+  "María Saldías Lara":          "maria.saldias@grupoees.cl",
+  "Maria Vargas":                "maria.vargas@grupoees.cl",
+  "Melissa Cortés Torrejon":     "melissa.cortes@grupoees.cl",
+  "Mical Arriaza Piña":          "mical.arriaza@grupoees.cl",
+  "Nicole Lara":                 "nicole.lara@grupoees.cl",
+  "Orlly González Colivoro":     "orlly.gonzalez@grupoees.cl",
+  "Pablo Campos":                "pablo.campos@grupoees.cl",
+  "Rodrigo Castilla Rubio":      "rodrigo.castilla@grupoees.cl",
+  "Tabata Ojeda Fontealba":      "tabata.ojeda@grupoees.cl",
+  "Yasna Rothen Sagredo":        "yasna.rothen@grupoees.cl",
 };
-const ID_A_CORREO = new Map();
-for (const [correo, ids] of Object.entries(ASIGNACION)) for (const id of ids) ID_A_CORREO.set(id, correo);
-const TODOS_IDS = [...ID_A_CORREO.keys()];
 
 // ── Conexión ───────────────────────────────────────────────────────────────
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,7 +70,7 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 const drive = google.drive({ version: "v3", auth });
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers de mapeo (idénticos a insertar-reasignacion-rm.mjs) ────────────
 const s = (v) => (v === undefined || v === null || v === "" ? null : String(v));
 const REP_PRESENTE_OK = new Set(["SI", "NO", "NO_APLICA", "NO_VERIFICABLE"]);
 const CHK_ITEM_OK = new Set(["CUMPLE", "NO_CUMPLE", "NO_VERIFICABLE"]);
@@ -56,7 +89,6 @@ function entero(v) {
   return Number.isFinite(n) ? n : null;
 }
 function fechaISO(v) {
-  // "25-12-2011" (DD-MM-YYYY) -> "2011-12-25"; devuelve null si no parsea
   if (!v) return null;
   const m = String(v).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
   if (!m) return null;
@@ -76,7 +108,6 @@ async function bajarJson(link) {
   return JSON.parse(txt);
 }
 
-// ── Mapea analysis.json + fila de MAESTRO_RM -> columnas de `casos` ─────────
 function mapear(j, fila, col) {
   const ident = j.datos_identificacion ?? {};
   const calif = j.datos_calificacion ?? {};
@@ -100,7 +131,6 @@ function mapear(j, fila, col) {
   const edad = entero(ident.edad);
   const chkItem = (o) => (CHK_ITEM_OK.has((o?.resultado || "").toUpperCase()) ? o.resultado.toUpperCase() : null);
 
-  // Bloques nuevos del bot (Revisión 12): edad calculada, profesional IVADEC, estado funcional literal.
   const ec = j.edad_calculada ?? {};
   const pi = j.profesional_ivadec ?? {};
   const ibfDuro = j.fuentes_duras_calificacion?.ibf ?? {};
@@ -249,7 +279,7 @@ function mapear(j, fila, col) {
 
     tokens_entrada: entero(col(fila, "TOKENS_ENTRADA")),
     tokens_salida: entero(col(fila, "TOKENS_SALIDA")),
-    costo_usd: pct(col(fila, "COSTO_USD")) === null ? null : parseFloat(String(col(fila, "COSTO_USD")).replace(",", ".")) || null,
+    costo_usd: (() => { const n = parseFloat(String(col(fila, "COSTO_USD") || "").replace(",", ".")); return Number.isFinite(n) ? n : null; })(),
     costo_clp: (() => { const n = parseFloat(String(col(fila, "COSTO_CLP") || "").replace(/[^\d.,-]/g, "").replace(",", ".")); return Number.isFinite(n) ? n : null; })(),
 
     analysis_json: JSON.stringify(j),
@@ -261,43 +291,63 @@ const cliente = new pg.Client({ connectionString: conn, ssl: { rejectUnauthorize
 await cliente.connect();
 
 try {
+  // 1. Hoja 5 → { id, calificadorNombre }
+  const h5 = (await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "Hoja 5" })).data.values ?? [];
+  const asignaciones = [];
+  const nombresVistos = new Set();
+  for (const r of h5.slice(1)) {
+    const id = (r[1] || "").trim();
+    const nombre = (r[2] || "").trim();
+    if (!/^\d{6,9}$/.test(id)) continue;
+    asignaciones.push({ id, nombre });
+    nombresVistos.add(nombre);
+  }
+  // dedup por id (nos quedamos con la primera asignación)
+  const vistos = new Set();
+  const lista = asignaciones.filter((a) => (vistos.has(a.id) ? false : vistos.add(a.id)));
+
+  // 2. Validar el mapa nombre → correo
+  const sinMapa = [...nombresVistos].filter((n) => !NOMBRE_A_CORREO[n]);
+  if (sinMapa.length) throw new Error(`Nombres en Hoja 5 sin entrada en NOMBRE_A_CORREO:\n  - ${sinMapa.join("\n  - ")}`);
+
+  const correos = [...new Set(Object.values(NOMBRE_A_CORREO))];
+  const { rows: cals } = await cliente.query("SELECT id, correo FROM usuarios WHERE correo = ANY($1)", [correos]);
+  const correoAId = new Map(cals.map((c) => [c.correo, c.id]));
+  const correosFaltan = correos.filter((c) => !correoAId.has(c));
+  if (correosFaltan.length) throw new Error(`Correos del mapa que NO están en la BD:\n  - ${correosFaltan.join("\n  - ")}`);
+
+  // 3. MAESTRO_RM indexado por ID
+  const mrm = (await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "MAESTRO_RM" })).data.values ?? [];
+  const header = mrm[0];
+  const col = (fila, nombre) => { const i = header.indexOf(nombre); return i === -1 ? "" : (fila[i] ?? "").trim(); };
+  const porId = new Map();
+  for (const f of mrm.slice(1)) { const id = (f[header.indexOf("ID_TRAMITE")] ?? "").trim(); if (id && !porId.has(id)) porId.set(id, f); }
+
   const { rows: estados } = await cliente.query("SELECT id FROM estados_caso WHERE nombre='BORRADOR'");
   const borradorId = estados[0].id;
 
-  const { rows: cals } = await cliente.query(
-    "SELECT id, correo FROM usuarios WHERE correo = ANY($1)",
-    [Object.keys(ASIGNACION)]
-  );
-  const correoAId = new Map(cals.map((c) => [c.correo, c.id]));
-  for (const correo of Object.keys(ASIGNACION)) {
-    if (!correoAId.has(correo)) throw new Error(`Falta el calificador ${correo} en la BD`);
-  }
+  // 4. Filtrar según flags
+  let objetivo = lista;
+  if (SOLO_CAL) objetivo = objetivo.filter((a) => a.nombre === SOLO_CAL);
+  if (LIMIT) objetivo = objetivo.slice(0, LIMIT);
 
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "MAESTRO_RM" });
-  const filasSheet = res.data.values ?? [];
-  const header = filasSheet[0];
-  const col = (fila, nombre) => { const i = header.indexOf(nombre); return i === -1 ? "" : (fila[i] ?? "").trim(); };
-  const porId = new Map();
-  for (const f of filasSheet.slice(1)) {
-    const id = (f[header.indexOf("ID_TRAMITE")] ?? "").trim();
-    if (id) porId.set(id, f);
-  }
+  console.log(`Hoja 5: ${lista.length} asignaciones únicas · ${nombresVistos.size} calificadores`);
+  console.log(`A procesar en esta corrida: ${objetivo.length}${DRY ? "  [DRY-RUN, no escribe]" : ""}\n`);
 
-  let insertados = 0, saltados = 0, fallidos = 0, docsTotal = 0;
+  let insertados = 0, saltados = 0, docsTotal = 0;
+  const noEnSheet = [], sinJson = [], errores = [];
   const porCal = {};
 
-  for (const id of TODOS_IDS) {
-    const correo = ID_A_CORREO.get(id);
+  for (const { id, nombre } of objetivo) {
+    const correo = NOMBRE_A_CORREO[nombre];
     const fila = porId.get(id);
-    if (!fila) { console.error(`❌ ${id}: no está en MAESTRO_RM`); fallidos++; continue; }
+    if (!fila) { noEnSheet.push(id); continue; }
+    if (!col(fila, "LINK_ANALISIS_JSON")) { sinJson.push(`${id} (${col(fila, "LAST_ERROR_CODE") || col(fila, "ESTADO_IA") || "sin JSON"})`); continue; }
 
     try {
       const j = await bajarJson(col(fila, "LINK_ANALISIS_JSON"));
-      if (!j || !j.checklist_admisibilidad_rm) {
-        console.error(`❌ ${id}: analysis.json sin checklist_admisibilidad_rm`);
-        fallidos++;
-        continue;
-      }
+      if (!j || !j.checklist_admisibilidad_rm) { sinJson.push(`${id} (analysis.json sin checklist)`); continue; }
+
       const m = mapear(j, fila, col);
       m.estado_caso_id = borradorId;
       m.calificador_asignado_id = correoAId.get(correo);
@@ -313,9 +363,9 @@ try {
       ].filter(([, l]) => !!l);
 
       if (DRY) {
-        console.log(`· ${id} → ${correo} | checklist=${m.estado_checklist} | %IA=${m.porcentaje_propuesto_ia} | %IVADEC=${m.porcentaje_ivadec_documento} | docs=${docs.length}`);
+        console.log(`· ${id} → ${nombre} | checklist=${m.estado_checklist} | %IA=${m.porcentaje_propuesto_ia} | %IVADEC=${m.porcentaje_ivadec_documento} | docs=${docs.length}`);
         insertados++;
-        porCal[correo] = (porCal[correo] ?? 0) + 1;
+        porCal[nombre] = (porCal[nombre] ?? 0) + 1;
         continue;
       }
 
@@ -325,55 +375,51 @@ try {
       const ph = valores.map((_, i) => `$${i + 1}`).join(", ");
       const r = await cliente.query(
         `INSERT INTO casos (${columnas.join(", ")}) VALUES (${ph})
-         ON CONFLICT (id_tramite) DO NOTHING RETURNING id, calificador_asignado_id`,
-        valores
+         ON CONFLICT (id_tramite) DO NOTHING RETURNING id`,
+        valores,
       );
-      if (r.rowCount === 0) {
-        await cliente.query("ROLLBACK");
-        console.log(`↷ ${id}: ya existía, saltado`);
-        saltados++;
-        continue;
-      }
+      if (r.rowCount === 0) { await cliente.query("ROLLBACK"); saltados++; continue; }
       const casoId = r.rows[0].id;
 
-      // fecha_asignacion (el INSERT ya puso calificador_asignado_id)
       await cliente.query("UPDATE casos SET fecha_asignacion = now() WHERE id = $1", [casoId]);
 
       for (const [tipo, link] of docs) {
         await cliente.query(
           "INSERT INTO documentos_caso (caso_id, tipo, link_drive, descargado) VALUES ($1,$2,$3,true)",
-          [casoId, tipo, link]
+          [casoId, tipo, link],
         );
         docsTotal++;
       }
 
-      // Historial de creación (estado_anterior_id NULL = alta)
       await cliente.query(
         `INSERT INTO historial_estados_caso (caso_id, usuario_id, estado_anterior_id, estado_nuevo_id, motivo)
-         VALUES ($1, NULL, NULL, $2, 'Alta desde MAESTRO_RM + asignación')`,
-        [casoId, borradorId]
+         VALUES ($1, NULL, NULL, $2, 'Alta desde MAESTRO_RM + asignación Hoja 5')`,
+        [casoId, borradorId],
       );
 
       await cliente.query("COMMIT");
       insertados++;
-      porCal[correo] = (porCal[correo] ?? 0) + 1;
-      console.log(`✓ ${id} → ${correo} | ${m.estado_checklist} | ${docs.length} docs`);
+      porCal[nombre] = (porCal[nombre] ?? 0) + 1;
+      if (insertados % 25 === 0) console.log(`  ... ${insertados} insertados`);
     } catch (e) {
       try { await cliente.query("ROLLBACK"); } catch {}
-      console.error(`❌ ${id}: ${e.message}`);
-      fallidos++;
+      errores.push(`${id}: ${e.message}`);
     }
   }
 
-  console.log(`\n${DRY ? "[DRY] " : ""}Insertados: ${insertados} | Saltados (duplicado): ${saltados} | Fallidos: ${fallidos} | Documentos: ${docsTotal}`);
-  console.log("Por calificador:", porCal);
+  console.log(`\n${DRY ? "[DRY] " : ""}Insertados: ${insertados} | Ya existían (saltados): ${saltados} | Documentos: ${docsTotal}`);
+  console.log("\nPor calificador:");
+  console.table(Object.entries(porCal).sort().map(([k, v]) => ({ calificador: k, casos: v })));
+  if (sinJson.length) console.log(`\n⏭  Con fila en MAESTRO_RM pero SIN analysis.json (${sinJson.length}):\n   ${sinJson.join("\n   ")}`);
+  if (noEnSheet.length) console.log(`\n⏭  NO están en MAESTRO_RM (${noEnSheet.length}):\n   ${noEnSheet.join(", ")}`);
+  if (errores.length) console.log(`\n❌ Errores (${errores.length}):\n   ${errores.join("\n   ")}`);
 
   if (!DRY) {
     const chk = await cliente.query(
       `SELECT COALESCE(estado_checklist::text,'(null)') AS estado_checklist, count(*)::int
-       FROM casos GROUP BY estado_checklist ORDER BY estado_checklist`
+       FROM casos GROUP BY estado_checklist ORDER BY estado_checklist`,
     );
-    console.log("\ncasos por estado_checklist:");
+    console.log("\ncasos por estado_checklist (total en BD):");
     console.table(chk.rows);
   }
 } finally {

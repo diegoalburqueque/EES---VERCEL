@@ -30,9 +30,9 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files — nunca subir secretos (JWT_SECRET, credenciales de BD, etc.)
+# Incluye .env.example: tampoco se versiona.
 .env
 .env.*
-!.env.example
 
 # Carpeta con documentación de la BD que incluye contraseñas reales (CONEXION.md, seed.sql
 # con passwords de usuarios) — nunca a git. Match amplio porque ya se coló una vez por un

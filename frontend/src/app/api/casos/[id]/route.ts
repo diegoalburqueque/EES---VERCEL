@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { obtenerSesionServidor } from "@/lib/session-server";
-import { SELECT_BASE, mapearFila, type FilaCaso } from "@/lib/casos-mapper";
+import { SELECT_BASE, mapearFila, adjuntarDocumentos, type FilaCaso } from "@/lib/casos-mapper";
 import { leerAnalysisJsonDesdeDrive } from "@/lib/google-drive";
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const sesion = await obtenerSesionServidor();
@@ -42,13 +42,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
   }
 
-  const { rows: filasDocumentos } = await pool.query<{ tipo: string; link_drive: string }>(
-    `SELECT tipo, link_drive FROM documentos_caso WHERE caso_id = $1 ORDER BY tipo`,
-    [id]
-  );
-
-  const caso = mapearFila(fila);
-  caso.propuesta.documentos = filasDocumentos.map((d) => ({ tipo: d.tipo, link: d.link_drive }));
+  const [caso] = await adjuntarDocumentos(pool, [mapearFila(fila)]);
 
   return NextResponse.json(caso);
 }

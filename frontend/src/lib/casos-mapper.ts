@@ -1,9 +1,32 @@
 import "server-only";
+import type { Pool } from "pg";
 import type { Caso, ChecklistItem, Decision, Direccion, ReevaluacionFinal } from "@/data/casos";
 import type { AnalisisQA } from "@/data/analisis";
 import { aFechaISO } from "@/lib/fechas";
 import { resolverComparativaIdis } from "@/lib/comparativa-idis";
 import { calcularDireccion } from "@/lib/resolucion";
+
+/**
+ * Rellena `propuesta.documentos` de cada caso desde `documentos_caso` en UNA query.
+ * mapearFila lo deja en `[]` (es puro por fila); tanto el listado como el detalle deben
+ * llamar a esto, o el listado mostraría "Falta en el expediente" y pisaría al detalle
+ * cuando una recarga de la lista corre después de `cargarDetalleCaso`.
+ */
+export async function adjuntarDocumentos(pool: Pool, casos: Caso[]): Promise<Caso[]> {
+  if (casos.length === 0) return casos;
+  const { rows } = await pool.query<{ caso_id: string; tipo: string; link_drive: string }>(
+    `SELECT caso_id, tipo, link_drive FROM documentos_caso WHERE caso_id = ANY($1) ORDER BY tipo`,
+    [casos.map((c) => c.id)],
+  );
+  const porCaso = new Map<string, { tipo: string; link: string }[]>();
+  for (const r of rows) {
+    const lista = porCaso.get(r.caso_id) ?? [];
+    lista.push({ tipo: r.tipo, link: r.link_drive });
+    porCaso.set(r.caso_id, lista);
+  }
+  for (const caso of casos) caso.propuesta.documentos = porCaso.get(caso.id) ?? [];
+  return casos;
+}
 
 export interface FilaCaso {
   id: string;

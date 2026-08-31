@@ -147,6 +147,8 @@ export default function CalificadorPage() {
                   <th className="px-4 py-2 font-medium">RUT</th>
                   <th className="px-4 py-2 font-medium">Nombre</th>
                   <th className="px-4 py-2 font-medium">Estado</th>
+                  <th className="px-4 py-2 font-medium">% IVADEC</th>
+                  <th className="px-4 py-2 font-medium">Propuesta sugerida</th>
                   <th className="px-4 py-2 font-medium">Asignado</th>
                   <th className="px-4 py-2 font-medium">Acciones</th>
                 </tr>
@@ -162,6 +164,13 @@ export default function CalificadorPage() {
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeEstado[c.estadoChecklist]}`}>
                         {labelEstado[c.estadoChecklist]}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-zinc-700">
+                      {c.porcentajeIvadecDocumento !== null ? `${c.porcentajeIvadecDocumento}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-zinc-700">
+                      {c.propuesta.porcentajeIvadecIA !== null ? `${c.propuesta.porcentajeIvadecIA}%` : "—"}
+                      {c.gradoMotor ? <span className="ml-1 text-xs text-zinc-400">{c.gradoMotor}</span> : null}
                     </td>
                     <td className="px-4 py-3 text-zinc-500">{formatearFecha(c.fechaAsignacion)}</td>
                     <td className="px-4 py-3">

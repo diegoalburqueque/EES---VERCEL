@@ -30,9 +30,25 @@ interface Campo {
 
 interface DatoReferencia {
   etiqueta: string;
-  valor: string;
+  valor?: string;
   /** Resultado del checklist del documento (CUMPLE / NO_CUMPLE / NO_VERIFICABLE). */
   resultado?: string;
+  /** Pares campo/valor que se muestran como grilla compacta dentro del panel — para plegar
+   *  las confirmaciones "duras" del documento (fuentes_duras_*) acá dentro en vez de en una
+   *  sección aparte. */
+  campos?: { etiqueta: string; valor: string }[];
+}
+
+/** Convierte un objeto plano del JSON (fuentes_duras_*) en pares etiqueta/valor legibles,
+ *  descartando los campos vacíos. */
+function paresDeRegistro(reg?: Record<string, unknown>): { etiqueta: string; valor: string }[] {
+  if (!reg) return [];
+  return Object.entries(reg)
+    .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "")
+    .map(([k, v]) => ({
+      etiqueta: k.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+      valor: String(v),
+    }));
 }
 
 interface Bloque {
@@ -157,6 +173,18 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
   const calif = analisis.datos_calificacion;
   const validacion = analisis.validacion_ivadec_cif;
 
+  // Confirmaciones "duras" que el motor extrajo de cada documento — antes vivían en una
+  // sección aparte; van dentro del panel "Análisis de esta sección" del bloque que les toca.
+  const fd = analisis.fuentes_duras_admisibilidad;
+  const fdc = analisis.fuentes_duras_calificacion;
+  const dxTranscritos = (fdc?.ibf?.diagnosticos_transcritos ?? [])
+    .map((d) => `• ${d.texto}${d.codigo && !/no consta/i.test(d.codigo) ? ` (${d.codigo})` : ""}${d.es_principal_explicito ? " — principal" : ""}${d.legibilidad ? ` [${d.legibilidad}]` : ""}`)
+    .join("\n");
+  const ivadecDuro = fdc?.ivadec;
+  const grupoEtario = ivadecDuro?.grupo_etario
+    ? `${ivadecDuro.grupo_etario}${ivadecDuro.edad_anos !== undefined ? ` · ${ivadecDuro.edad_anos} años${ivadecDuro.edad_meses_adicionales ? ` ${ivadecDuro.edad_meses_adicionales} m` : ""}` : ""}`
+    : "";
+
   // Cada observación QA se muestra en la sección del documento que la origina.
   const observacionesPorCodigo = (codigos: string[]): DatoReferencia[] =>
     analisis.observaciones_qa
@@ -216,7 +244,9 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
           valor: analisis.checklist_admisibilidad_rm.requiere_representante
             ? `Requiere representante · ${analisis.checklist_admisibilidad_rm.representante_presente}`
             : "No requiere representante",
+          campos: paresDeRegistro(fd?.representante),
         },
+        { etiqueta: "Verificación documental — Cédula", campos: paresDeRegistro(fd?.cedula) },
         ...observacionesPorCodigo(["1"]),
       ],
     },
@@ -242,6 +272,7 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
           etiqueta: "Antecedentes sociales relevantes (sugerido)",
           valor: texto(calif.antecedentes_sociales_relevantes),
         },
+        { etiqueta: "Verificación documental — ISRA", campos: paresDeRegistro(fd?.isra) },
         ...observacionesPorCodigo(["13"]),
       ],
     },
@@ -281,6 +312,12 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
           etiqueta: "Observaciones de datos relevantes (sugerido)",
           valor: texto(calif.observaciones_datos_relevantes_calificacion),
         },
+        {
+          etiqueta: "Causas de discapacidad marcadas (IBF)",
+          valor: (fdc?.ibf?.causas_discapacidad_marcadas ?? []).join(", "),
+        },
+        { etiqueta: "Diagnósticos transcritos del IBF", valor: dxTranscritos },
+        { etiqueta: "Verificación documental — IBF", campos: paresDeRegistro(fd?.ibf) },
         ...observacionesPorCodigo(["10", "11", "12"]),
       ],
     },
@@ -326,6 +363,8 @@ function construirBloques(analisis: AnalisisQA): Bloque[] {
           valor: texto(validacion.observacion_breve),
           resultado: validacion.coincide_con_expediente ? "COINCIDE" : "NO_COINCIDE",
         },
+        { etiqueta: "Grupo etario (IVADEC)", valor: grupoEtario },
+        { etiqueta: "Verificación documental — IVADEC", campos: paresDeRegistro(fd?.ivadec) },
       ],
     },
     {
@@ -599,7 +638,7 @@ function Insignia({ valor }: { valor: string }) {
 
 /** Lo que el motor de EES analizó para esta sección: respaldo de la propuesta, no editable. */
 function PanelReferencia({ datos }: { datos: DatoReferencia[] }) {
-  const visibles = datos.filter((d) => d.valor.trim());
+  const visibles = datos.filter((d) => (d.valor && d.valor.trim()) || (d.campos && d.campos.length > 0));
   if (visibles.length === 0) return null;
 
   return (
@@ -614,7 +653,21 @@ function PanelReferencia({ datos }: { datos: DatoReferencia[] }) {
               <p className="text-sm font-semibold text-zinc-900">{dato.etiqueta}</p>
               {dato.resultado && <Insignia valor={dato.resultado} />}
             </div>
-            <p className="mt-0.5 whitespace-pre-line text-sm text-zinc-600">{dato.valor}</p>
+            {dato.valor && dato.valor.trim() && (
+              <p className="mt-0.5 whitespace-pre-line text-sm text-zinc-600">{dato.valor}</p>
+            )}
+            {dato.campos && dato.campos.length > 0 && (
+              <dl className="mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+                {dato.campos.map((c, j) => (
+                  <div key={j} className="min-w-0">
+                    <dt className="text-[11px] font-medium uppercase tracking-wide text-[var(--atm-gris)]">
+                      {c.etiqueta}
+                    </dt>
+                    <dd className="break-words text-sm text-zinc-700">{c.valor}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         ))}
       </div>

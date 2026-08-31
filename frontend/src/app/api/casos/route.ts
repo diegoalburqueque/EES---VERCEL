@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { obtenerSesionServidor } from "@/lib/session-server";
-import { SELECT_BASE, mapearFila, type FilaCaso } from "@/lib/casos-mapper";
+import { SELECT_BASE, mapearFila, adjuntarDocumentos, type FilaCaso } from "@/lib/casos-mapper";
 
 export async function GET() {
   const sesion = await obtenerSesionServidor();
@@ -18,15 +18,14 @@ export async function GET() {
 
   const pool = getPool();
 
-  if (sesion.rol === "ADMIN") {
-    const { rows } = await pool.query<FilaCaso>(`${SELECT_BASE} ORDER BY c.created_at DESC`);
-    return NextResponse.json(rows.map(mapearFila));
-  }
+  const { rows } =
+    sesion.rol === "ADMIN"
+      ? await pool.query<FilaCaso>(`${SELECT_BASE} ORDER BY c.created_at DESC`)
+      : // CALIFICADOR: solo sus propios casos, nunca NO_APTO (regla no negociable).
+        await pool.query<FilaCaso>(
+          `${SELECT_BASE} WHERE c.calificador_asignado_id = $1 AND c.estado_checklist <> 'NO_APTO' ORDER BY c.created_at DESC`,
+          [sesion.id],
+        );
 
-  // CALIFICADOR: solo sus propios casos, nunca NO_APTO (regla no negociable).
-  const { rows } = await pool.query<FilaCaso>(
-    `${SELECT_BASE} WHERE c.calificador_asignado_id = $1 AND c.estado_checklist <> 'NO_APTO' ORDER BY c.created_at DESC`,
-    [sesion.id]
-  );
-  return NextResponse.json(rows.map(mapearFila));
+  return NextResponse.json(await adjuntarDocumentos(pool, rows.map(mapearFila)));
 }

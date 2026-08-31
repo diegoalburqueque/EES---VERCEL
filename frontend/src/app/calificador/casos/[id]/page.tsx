@@ -14,6 +14,7 @@ import {
   type CajaResolucion,
 } from "@/components/ResolucionCalificador";
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
+import { ObservacionesAnalisis } from "@/components/ObservacionesAnalisis";
 import { useRevisionTracker } from "@/components/useRevisionTracker";
 import { formatearFecha } from "@/lib/fechas";
 
@@ -212,6 +213,9 @@ export default function DetalleCasoPage() {
               </p>
             )}
           </div>
+
+          {/* C-bis. Observaciones del análisis — bloques de detalle del analysis.json ampliado */}
+          {caso.analisis && <ObservacionesAnalisis analisis={caso.analisis} />}
 
           {/* D. Propuesta de calificación sugerida — tabla comparativa IVADEC vs propuesta (vs Calificador si ya resuelto) */}
           <div className="rounded-xl border border-[var(--atm-linea)] bg-white px-5 py-4">

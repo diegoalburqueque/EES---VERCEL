@@ -165,7 +165,7 @@ Mapeado en `src/lib/casos-mapper.ts` (`mapearFila`) desde `casos` + `calificacio
     fundamento: string;
     modificadoPorCalificador: boolean;
     checklist: { item: string; cumple: boolean; evidencia: string }[];
-    documentos: { tipo: string; link: string }[]; // hoy siempre [] — documentos_caso todavía no se llena
+    documentos: { tipo: string; link: string }[]; // de documentos_caso, vía adjuntarDocumentos() en ambos endpoints
   };
 }
 ```
@@ -196,7 +196,7 @@ Cuando un caso ya está resuelto, `caso.resolucion` incluye `calificadorNombre` 
 
 - [ ] Decidir si `src/lib/db.ts` (conexión directa a Postgres) se reemplaza por un cliente HTTP a una API real de Cristóbal, o si el modelo "Next.js como BFF contra Supabase" queda como definitivo.
 - [ ] Confirmar si `casos.no_apto_mensaje` (y los links de evidencia de archivos NO_APTO) ya se muestran en el modal de admin o falta cablear esa parte de la UI.
-- [ ] `documentos_caso` sigue sin llenarse — `propuesta.documentos` siempre devuelve `[]`.
-- [ ] Limpiar el array mock muerto en `src/data/casos.ts` (`export const casos`), ya que nada lo importa.
+- [x] `documentos_caso` — ya se llena en la carga de casos y `GET /api/casos` + `/api/casos/[id]` lo devuelven vía `adjuntarDocumentos()` (helper compartido en `casos-mapper.ts`).
+- [x] `src/data/casos.ts` ya no tiene array mock — solo tipos. `FormularioCalificador.tsx` (sin usar) eliminado.
 - [ ] Definir paginación real en `GET /api/casos` cuando haya volumen — hoy trae todo y la paginación es solo client-side (`admin/page.tsx`).
 - [ ] Confirmar credencial de Drive (`GOOGLE_SERVICE_ACCOUNT_JSON`) configurada en Vercel — el propio `google-drive.ts` documenta que en producción esto falló en silencio una vez y cayó siempre a la ficha sintética.

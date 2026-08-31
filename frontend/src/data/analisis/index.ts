@@ -30,6 +30,102 @@ export interface ItemChecklist {
   observacion: string;
 }
 
+/* ── Bloques de detalle que agregó el bot (JSON ampliado) ─────────────────────
+ * Todos opcionales: la ficha sintética (casos sin analysis.json real) no los trae,
+ * y el motor puede omitir alguno. El componente <ObservacionesAnalisis> los muestra solo
+ * si vienen. Se leen directo de `casos.analysis_json` — no hay columnas planas. */
+
+export interface DiagnosticoAnalizado {
+  id: string;
+  texto_literal: string;
+  codigo_visible: string;
+  fuente_tipo: string;
+  fuente_documento: string;
+  estado_clinico: string;
+  legibilidad: string;
+  impacto_funcional_documentado: string;
+  origen_documental: string;
+  origen_esperado_guia: string;
+  coherencia_origen: string;
+  diagnostico_normalizado_propuesta: string;
+  normalizacion_estado: string;
+  faltantes_normalizacion: string[];
+  candidato_certificable: string;
+  es_principal_sugerido: boolean;
+  motivo_principal_sugerido: string;
+}
+
+export interface EvaluacionGuiaClinica {
+  diagnostico_id: string;
+  familia_guia: string;
+  resultado: string;
+  profesionales_requeridos: string[];
+  soporte_profesional_encontrado: string[];
+  informacion_requerida: string[];
+  informacion_encontrada: string[];
+  informacion_faltante: string[];
+  elementos_rescatar_encontrados: string[];
+  origen_guia: string;
+  observacion: string;
+}
+
+export interface ActividadCoherencia {
+  codigo: string;
+  actividad: string;
+  a: number | null;
+  b: number | null;
+  c: number | null;
+}
+
+export interface FuentesDurasCalificacion {
+  ibf?: {
+    causas_discapacidad_marcadas?: string[];
+    diagnosticos_transcritos?: {
+      codigo: string;
+      texto: string;
+      legibilidad: string;
+      es_principal_explicito: boolean;
+    }[];
+    requiere_ayuda_tecnica?: string;
+    usa_ayuda_tecnica?: string;
+    ayuda_tecnica_texto?: string;
+  };
+  ivadec?: {
+    edad_anos?: number;
+    edad_meses_adicionales?: number;
+    grupo_etario?: string;
+    origen_principal?: string;
+    otros_origenes?: string[];
+    porcentaje_discapacidad?: string;
+    idis?: string;
+    grado_discapacidad?: string;
+    actividades_coherencia?: ActividadCoherencia[];
+  };
+  isra?: {
+    convivientes?: {
+      nombre: string;
+      edad: string;
+      relacion: string;
+      actividad_principal: string;
+    }[];
+  };
+}
+
+export interface FuentesDurasAdmisibilidad {
+  cedula?: Record<string, string>;
+  ibf?: Record<string, string>;
+  isra?: Record<string, string>;
+  ivadec?: Record<string, string>;
+  representante?: Record<string, string>;
+}
+
+export interface ReglaDeterministica {
+  resultado: string;
+  traza: string;
+  motivo: string;
+  origenes_ignorados?: string[];
+}
+
 export interface AnalisisQA {
   metadata_informe: {
     tipo_informe: string;
@@ -156,4 +252,11 @@ export interface AnalisisQA {
     alertas_carga: string[];
   };
   nombre_archivo_sugerido: string;
+
+  // Bloques de detalle del JSON ampliado — opcionales, ver <ObservacionesAnalisis>.
+  analisis_diagnosticos?: DiagnosticoAnalizado[];
+  evaluacion_guia_clinica?: EvaluacionGuiaClinica[];
+  fuentes_duras_calificacion?: FuentesDurasCalificacion;
+  fuentes_duras_admisibilidad?: FuentesDurasAdmisibilidad;
+  reglas_deterministicas?: Record<string, ReglaDeterministica>;
 }
