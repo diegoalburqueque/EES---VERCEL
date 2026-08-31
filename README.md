@@ -66,5 +66,7 @@ Despliegue: `psql "$DATABASE_URL" -f schema.sql` y luego `-f seed.sql`.
 
 ## Contexto de arquitectura
 
-[`frontend/ARQUITECTURA-FRONTEND.md`](frontend/ARQUITECTURA-FRONTEND.md) — mapa de pantallas,
-matriz de permisos por endpoint y forma del JSON que devuelve cada ruta.
+- [`frontend/ARQUITECTURA-FRONTEND.md`](frontend/ARQUITECTURA-FRONTEND.md) — mapa de pantallas,
+  matriz de permisos y forma del JSON que devuelve cada ruta.
+- [`frontend/API.md`](frontend/API.md) — todas las rutas `/api/*`: a dónde apuntan, qué tablas
+  tocan y su lógica.
