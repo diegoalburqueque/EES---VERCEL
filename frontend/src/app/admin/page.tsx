@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSesion } from "@/components/SesionProvider";
 import { type Caso, type EstadoChecklist } from "@/data/casos";
 import { type Usuario } from "@/data/usuarios";
@@ -8,6 +8,13 @@ import { Modal } from "@/components/Modal";
 import { FichaEditable } from "@/components/FichaEditable";
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 import { TablaComparativaIdis, ResolucionRegistrada } from "@/components/ResolucionCalificador";
+import {
+  descargarCsv,
+  filaDevuelto,
+  filaNoApto,
+  motivosNoApto,
+  detalleDevuelto,
+} from "@/lib/exportar-casos";
 
 const badgeEstado: Record<EstadoChecklist, string> = {
   APTO: "bg-emerald-50 text-emerald-700",
@@ -464,6 +471,15 @@ export default function AdminPage() {
   const [busquedaIdAdmin, setBusquedaIdAdmin] = useState("");
   const [tamanoPaginaAdmin, setTamanoPaginaAdmin] = useState<TamanoPagina>(20);
   const [paginaAdmin, setPaginaAdmin] = useState(1);
+  const [filasExpandidas, setFilasExpandidas] = useState<Set<string>>(new Set());
+
+  function alternarFila(id: string) {
+    setFilasExpandidas((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  }
 
   const casosVisibles = useMemo(() => {
     const base =
@@ -511,6 +527,18 @@ export default function AdminPage() {
   function cambiarTamanoPaginaAdmin(nuevo: TamanoPagina) {
     setTamanoPaginaAdmin(nuevo);
     setPaginaAdmin(1);
+  }
+
+  // Descarga Excel (CSV). "todos" = filas visibles con el mapeo de la vista; individual = 1 fila.
+  const vistaExportable = vista === "no-aptos" || vista === "devueltos";
+  const mapearFilaExport = vista === "devueltos" ? filaDevuelto : filaNoApto;
+  const fechaHoy = new Date().toISOString().slice(0, 10);
+  function exportarTodos() {
+    if (casosVisibles.length === 0) return;
+    descargarCsv(`${vista}-${fechaHoy}`, casosVisibles.map(mapearFilaExport));
+  }
+  function exportarUno(c: Caso) {
+    descargarCsv(`${vista === "devueltos" ? "devuelto" : "no-apto"}-${c.idTramite}`, [mapearFilaExport(c)]);
   }
 
   const calificadores = listaUsuarios.filter((u) => u.rol === "CALIFICADOR");
@@ -799,9 +827,21 @@ export default function AdminPage() {
         ) : (
           <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-zinc-500">
-              {casosVisibles.length} caso{casosVisibles.length === 1 ? "" : "s"}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-medium text-zinc-500">
+                {casosVisibles.length} caso{casosVisibles.length === 1 ? "" : "s"}
+              </h2>
+              {vistaExportable && (
+                <button
+                  type="button"
+                  onClick={exportarTodos}
+                  disabled={casosVisibles.length === 0}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                >
+                  Exportar todo a Excel
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center gap-3 text-sm">
               <label className="flex items-center gap-1.5 text-zinc-500">
@@ -860,14 +900,24 @@ export default function AdminPage() {
                   <th className="px-4 py-2 font-medium">RUT</th>
                   <th className="px-4 py-2 font-medium">Nombre</th>
                   <th className="px-4 py-2 font-medium">Estado</th>
+                  {vistaExportable && (
+                    <th className="px-4 py-2 font-medium">
+                      {vista === "devueltos" ? "Causa" : "Motivo (checklist)"}
+                    </th>
+                  )}
                   <th className="px-4 py-2 font-medium">Flujo</th>
                   <th className="px-4 py-2 font-medium">Calificador</th>
                   <th className="px-4 py-2 font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {casosVisiblesPagina.map((c) => (
-                  <tr key={c.id}>
+                {casosVisiblesPagina.map((c) => {
+                  const abierta = filasExpandidas.has(c.id);
+                  const motivos = vista === "no-aptos" ? motivosNoApto(c) : [];
+                  const dev = vista === "devueltos" ? detalleDevuelto(c) : null;
+                  return (
+                  <Fragment key={c.id}>
+                  <tr className={abierta ? "bg-zinc-50" : undefined}>
                     <td className="px-4 py-3 font-mono text-zinc-700">{c.idTramite}</td>
                     <td className="px-4 py-3 text-zinc-700">{c.region}</td>
                     <td className="px-4 py-3 text-zinc-700">{c.rut}</td>
@@ -877,6 +927,34 @@ export default function AdminPage() {
                         {labelEstado[c.estadoChecklist]}
                       </span>
                     </td>
+                    {vistaExportable && (
+                      <td className="px-4 py-3">
+                        {vista === "devueltos" ? (
+                          <button
+                            type="button"
+                            onClick={() => alternarFila(c.id)}
+                            className="max-w-[220px] truncate text-left text-xs text-zinc-700 hover:underline"
+                            title={dev?.detalle}
+                          >
+                            {dev?.causa || dev?.codigo || "Sin causa registrada"}
+                          </button>
+                        ) : motivos.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => alternarFila(c.id)}
+                            className="flex flex-wrap gap-1"
+                          >
+                            {motivos.map((m, i) => (
+                              <span key={i} className="rounded-[3px] border border-[var(--atm-mal)] bg-white px-1.5 py-[1px] text-[10.5px] font-semibold uppercase tracking-wide text-[var(--atm-mal)]">
+                                {m.etiqueta}
+                              </span>
+                            ))}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-zinc-400">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -898,18 +976,95 @@ export default function AdminPage() {
                     </td>
                     <td className="px-4 py-3 text-zinc-500">{c.calificadorNombre ?? "Sin asignar"}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => abrirCaso(c)}
-                        className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Ver caso
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {vistaExportable && (
+                          <>
+                            <button
+                              onClick={() => alternarFila(c.id)}
+                              className="rounded-lg border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                            >
+                              {abierta ? "Ocultar" : "Detalle"}
+                            </button>
+                            <button
+                              onClick={() => exportarUno(c)}
+                              className="rounded-lg border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                              title="Exportar este caso a Excel"
+                            >
+                              Excel
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => abrirCaso(c)}
+                          className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Ver caso
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  {abierta && vistaExportable && (
+                    <tr className="bg-zinc-50">
+                      <td colSpan={vistaExportable ? 9 : 8} className="px-4 pb-4 pt-0">
+                        {vista === "devueltos" ? (
+                          <div className="border border-[var(--atm-linea)] border-l-2 border-l-[var(--atm-azul2)] bg-white px-4 py-3 text-sm">
+                            <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--atm-gris)]">Causa</p>
+                                <p className="text-zinc-800">{dev?.causa || "—"} {dev?.codigo && <span className="text-zinc-400">({dev.codigo})</span>}</p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--atm-gris)]">Devuelto por</p>
+                                <p className="text-zinc-800">{dev?.por || "—"} {dev?.fecha && <span className="text-zinc-400">· {dev.fecha}</span>}</p>
+                              </div>
+                              <div className="sm:col-span-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--atm-gris)]">Detalle del calificador</p>
+                                <p className="whitespace-pre-line text-zinc-800">{dev?.detalle || "—"}</p>
+                              </div>
+                              {c.analisis?.datos_calificacion?.diagnostico_principal && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--atm-gris)]">Diagnóstico principal (propuesta)</p>
+                                  <p className="text-zinc-700">{c.analisis.datos_calificacion.diagnostico_principal}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="border border-[var(--atm-linea)] border-l-2 border-l-[var(--atm-mal)] bg-white px-4 py-3 text-sm">
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--atm-gris)]">
+                              Motivo del NO APTO — checklist de admisibilidad
+                            </p>
+                            {motivos.length === 0 ? (
+                              <p className="text-zinc-500">
+                                Resultado general NO_APTO sin ítem específico en el checklist.
+                                {c.analisis?.verificacion_identidad?.resumen ? ` Identidad: ${c.analisis.verificacion_identidad.resumen}` : ""}
+                              </p>
+                            ) : (
+                              <ul className="flex flex-col gap-1.5">
+                                {motivos.map((m, i) => (
+                                  <li key={i} className="flex gap-2 text-zinc-800">
+                                    <span className="mt-[3px] inline-block h-[13px] w-[3px] shrink-0 bg-[var(--atm-mal)]" />
+                                    <span><span className="font-semibold">{m.etiqueta}:</span> {m.texto}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {(c.analisis?.observaciones_qa?.length ?? 0) > 0 && (
+                              <p className="mt-2 border-t border-[var(--atm-linea)] pt-2 text-xs text-zinc-500">
+                                Observaciones QA: {c.analisis!.observaciones_qa.map((o) => `${o.codigo} ${o.categoria}`).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
                 {casosVisiblesPagina.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-6 text-center text-zinc-400">
+                    <td colSpan={vistaExportable ? 9 : 8} className="px-4 py-6 text-center text-zinc-400">
                       No hay casos en esta vista.
                     </td>
                   </tr>

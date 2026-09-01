@@ -11,6 +11,7 @@ export function CalificadorHeader() {
 
   const pestañas = [
     { href: "/calificador", etiqueta: "Mis casos" },
+    { href: "/calificador/devueltos", etiqueta: "Devueltos" },
     { href: "/calificador/historico", etiqueta: "Histórico" },
   ];
 

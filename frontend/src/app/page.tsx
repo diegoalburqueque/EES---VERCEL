@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+/** Versión del sistema — primera entrega. Se sube a mano en cada release. */
+const VERSION_SISTEMA = "1.0.0";
+
 export default function LoginPage() {
   const router = useRouter();
   const [correo, setCorreo] = useState("");
@@ -36,7 +39,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-[var(--atm-fondo)] px-4">
+    <div className="relative flex flex-1 items-center justify-center bg-[var(--atm-fondo)] px-4 py-16">
+      <span className="absolute right-6 top-5 rounded-full border border-[var(--atm-linea)] bg-white px-2.5 py-1 font-mono text-xs text-zinc-500 shadow-sm">
+        v{VERSION_SISTEMA}
+      </span>
+
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-xl font-semibold text-zinc-900">Grupo EES</h1>
