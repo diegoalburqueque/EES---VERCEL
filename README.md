@@ -11,12 +11,12 @@ cargar en CeroFilas.
 | Framework | Next.js 16 (App Router, Turbopack) · TypeScript strict |
 | UI | React 19 + Tailwind CSS 4, sin librería de componentes |
 | Auth | JWT (`jose`, HS256) en cookie `httpOnly` — nunca `localStorage`. Cookie `compin_token`, 8 h |
-| Datos | PostgreSQL en Supabase, acceso directo con `pg` (`src/lib/db.ts`) — Next.js hace de BFF |
+| Datos | PostgreSQL, acceso directo con `pg` vía `DATABASE_URL` (`src/lib/db.ts`) — Next.js hace de BFF |
 | Documentos | Google Drive read-only (`googleapis`) para leer los `analysis.json` de los casos |
 | Deploy | Vercel |
 
 No hay API separada: cada route handler de `src/app/api/*` valida el JWT + rol y corre SQL
-directo contra Supabase.
+directo contra PostgreSQL.
 
 ## Estructura
 
@@ -32,7 +32,7 @@ EES---VERCEL/
     ├── src/components/    UI (FichaEditable, ResolucionCalificador, ObservacionesAnalisis, …)
     ├── src/lib/           db, jwt, auth, casos-mapper, google-drive, métricas
     ├── src/data/          tipos (analisis, casos, usuarios) + catálogos de resolución
-    ├── scripts/           carga de casos e introspección (Node, contra Supabase)
+    ├── scripts/           carga de casos e introspección (Node, contra PostgreSQL)
     └── BD/bd -- EES SUPABASE-VERCEL/
         ├── schema.sql · seed.sql   despliegue de la base
         └── README.md               doc de la BD
@@ -48,6 +48,18 @@ npm run dev                  # http://localhost:3000
 ```
 
 `service-account.json` (credencial de Drive, gitignored) va en `frontend/`.
+
+## Variables de entorno (Vercel → Settings → Environment Variables, Production + Preview)
+
+`.env.example` está ignorado por git (`.env*`), así que la lista vigente vive acá. Nunca pegar valores en este archivo.
+
+| Variable | Obligatoria | Para qué |
+|---|---|---|
+| `DATABASE_URL` | Sí | Postgres en Render (`src/lib/db.ts`). |
+| `JWT_SECRET` | Sí | Firma de la cookie de sesión (mín. 32 caracteres aleatorios). |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Sí | JSON completo de la cuenta de servicio, en una línea. Lo usa Drive (lectura de `analysis.json`). En local se puede usar `frontend/service-account.json`. |
+| `CREDENCIALES_CLAVE` | Sí, para CALIFICADORES | Clave AES-256 (32 bytes en base64) para la copia recuperable de contraseñas. Marcarla **Sensitive** en Vercel y respaldarla en un gestor de contraseñas: si se pierde, las copias no se pueden descifrar. Generar con `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Sin ella, el primer ingreso y la creación de calificadores responden 503. |
+| `CREDENCIALES_CLAVE_VERSION` | No | Etiqueta de la clave vigente (por defecto `v1`); se guarda junto a cada copia para futuras rotaciones. |
 
 ## Roles y flujo
 

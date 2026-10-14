@@ -1,12 +1,13 @@
 // PALANTIR v1.0.0 — PATCH /api/usuarios/[id]
-// Edita nombre/apellido/correo y/o activa-desactiva un usuario — body: cualquier subconjunto
-// de { nombre, apellido, correo, activo }, solo se actualiza lo presente. "activo: false" es
+// Edita nombre/apellido/RUT/correo y/o activa-desactiva un usuario — body: cualquier subconjunto
+// de { nombre, apellido, rut, correo, activo }, solo se actualiza lo presente. "activo: false" es
 // lo más destructivo que existe acá: nunca hay DELETE (regla no negociable, un usuario nunca
 // se elimina de la base, solo se desactiva). 409 si el correo nuevo ya existe. Solo ADMIN.
 
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { obtenerSesionServidor } from "@/lib/session-server";
+import { normalizarRut } from "@/lib/rut";
 import type { Usuario } from "@/data/usuarios";
 
 const CORREO_INSTITUCIONAL = /^[^\s@]+@grupoees\.cl$/i;
@@ -22,7 +23,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!cuerpo || typeof cuerpo !== "object") {
     return NextResponse.json({ error: "Cuerpo inválido." }, { status: 400 });
   }
-  const { nombre, apellido, correo, activo } = cuerpo as Record<string, unknown>;
+  const { nombre, apellido, correo, rut, activo } = cuerpo as Record<string, unknown>;
+  const rutNormalizado = rut === undefined ? undefined : typeof rut === "string" ? normalizarRut(rut) : null;
 
   if (correo !== undefined && (typeof correo !== "string" || !CORREO_INSTITUCIONAL.test(correo.trim()))) {
     return NextResponse.json({ error: "El correo debe ser una dirección @grupoees.cl válida." }, { status: 400 });
@@ -32,6 +34,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   if (apellido !== undefined && (typeof apellido !== "string" || !apellido.trim())) {
     return NextResponse.json({ error: "El apellido no puede estar vacío." }, { status: 400 });
+  }
+  if (rut !== undefined && !rutNormalizado) {
+    return NextResponse.json({ error: "Ingresa un RUT chileno válido." }, { status: 400 });
   }
   if (activo !== undefined && typeof activo !== "boolean") {
     return NextResponse.json({ error: "'activo' debe ser boolean." }, { status: 400 });
@@ -52,6 +57,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (apellido !== undefined) {
       await pool.query(`UPDATE usuarios SET apellido = $1 WHERE id = $2`, [(apellido as string).trim(), id]);
     }
+    if (rut !== undefined) {
+      await pool.query(`UPDATE usuarios SET rut = $1 WHERE id = $2`, [rutNormalizado, id]);
+    }
     if (correo !== undefined) {
       await pool.query(`UPDATE usuarios SET correo = $1 WHERE id = $2`, [
         (correo as string).trim().toLowerCase(),
@@ -63,11 +71,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       id: string;
       nombre: string;
       apellido: string;
+      rut: string | null;
       correo: string;
       rol: Usuario["rol"];
       estado: string;
     }>(
-      `SELECT u.id, u.nombre, u.apellido, u.correo, r.nombre AS rol, eu.estado
+      `SELECT u.id, u.nombre, u.apellido, u.rut, u.correo, r.nombre AS rol, eu.estado
          FROM usuarios u
          JOIN roles r ON r.id = u.rol_id
          JOIN estado_usuario eu ON eu.id = u.estado_usuario_id
@@ -82,6 +91,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const usuario: Usuario = {
       id: fila.id,
       nombreCompleto: `${fila.nombre} ${fila.apellido}`,
+      rut: fila.rut,
       correo: fila.correo,
       rol: fila.rol,
       activo: fila.estado === "ACTIVO",
@@ -89,7 +99,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json(usuario);
   } catch (error) {
     if (error instanceof Error && "code" in error && (error as { code: string }).code === "23505") {
-      return NextResponse.json({ error: "Ya existe un usuario con ese correo." }, { status: 409 });
+      return NextResponse.json({ error: "Ya existe un usuario con ese RUT o correo." }, { status: 409 });
     }
     console.error(error);
     return NextResponse.json({ error: "No se pudo actualizar el usuario." }, { status: 500 });

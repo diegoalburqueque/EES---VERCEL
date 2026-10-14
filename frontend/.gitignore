@@ -43,3 +43,6 @@ service-account.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Planilla de perfiles: trae claves de CeroFilas en texto plano
+PERFILES HABILITADOS*.xlsx

@@ -5,6 +5,7 @@ import { useSesion } from "@/components/SesionProvider";
 import { type Caso, type EstadoChecklist } from "@/data/casos";
 import { type Usuario } from "@/data/usuarios";
 import { Modal } from "@/components/Modal";
+import { RecuperarContrasena } from "@/components/RecuperarContrasena";
 import { FichaEditable } from "@/components/FichaEditable";
 import { DocumentosExpediente } from "@/components/DocumentosExpediente";
 import { TablaComparativaIdis, ResolucionRegistrada } from "@/components/ResolucionCalificador";
@@ -65,23 +66,24 @@ function FormularioUsuario({
   usuario?: Usuario;
   guardando: boolean;
   error: string | null;
-  onCrear: (datos: { nombre: string; apellido: string; correo: string; password: string }) => void;
-  onEditar: (id: string, datos: { nombre: string; apellido: string; correo: string }) => void;
+  onCrear: (datos: { nombre: string; apellido: string; rut: string; correo: string; password: string }) => void;
+  onEditar: (id: string, datos: { nombre: string; apellido: string; rut: string; correo: string }) => void;
 }) {
   // El API solo devuelve nombreCompleto — se separa por el primer espacio como punto de
   // partida para editar; si el nombre real tiene más de una palabra, el admin lo corrige acá.
   const [primerNombre, ...resto] = (usuario?.nombreCompleto ?? "").split(" ");
   const [nombre, setNombre] = useState(primerNombre ?? "");
   const [apellido, setApellido] = useState(resto.join(" "));
+  const [rut, setRut] = useState(usuario?.rut ?? "");
   const [correo, setCorreo] = useState(usuario?.correo ?? "");
   const [password, setPassword] = useState("");
 
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     if (modo === "crear") {
-      onCrear({ nombre, apellido, correo, password });
+      onCrear({ nombre, apellido, rut, correo, password });
     } else if (usuario) {
-      onEditar(usuario.id, { nombre, apellido, correo });
+      onEditar(usuario.id, { nombre, apellido, rut, correo });
     }
   }
 
@@ -108,6 +110,17 @@ function FormularioUsuario({
           />
         </label>
       </div>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-zinc-500">RUT de acceso</span>
+        <input
+          value={rut}
+          onChange={(e) => setRut(e.target.value)}
+          required
+          placeholder="12.345.678-9"
+          autoComplete="off"
+          className="rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 outline-none focus:border-zinc-900"
+        />
+      </label>
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-zinc-500">Correo (@grupoees.cl)</span>
         <input
@@ -389,7 +402,7 @@ export default function AdminPage() {
       .finally(() => setCargandoCasos(false));
   }, []);
 
-  // Los calificadores salen de la tabla `usuarios` de Supabase, no de datos en memoria.
+  // Los calificadores salen de la tabla `usuarios` de PostgreSQL, no de datos en memoria.
   function cargarUsuarios() {
     return fetch("/api/usuarios")
       .then((r) => {
@@ -411,9 +424,10 @@ export default function AdminPage() {
     null
   );
   const [errorFormUsuario, setErrorFormUsuario] = useState<string | null>(null);
+  const [calificadorARecuperar, setCalificadorARecuperar] = useState<Usuario | null>(null);
   const [guardandoUsuario, setGuardandoUsuario] = useState(false);
 
-  async function crearUsuario(datos: { nombre: string; apellido: string; correo: string; password: string }) {
+  async function crearUsuario(datos: { nombre: string; apellido: string; rut: string; correo: string; password: string }) {
     setGuardandoUsuario(true);
     setErrorFormUsuario(null);
     try {
@@ -433,7 +447,7 @@ export default function AdminPage() {
     }
   }
 
-  async function editarUsuario(id: string, datos: { nombre: string; apellido: string; correo: string }) {
+  async function editarUsuario(id: string, datos: { nombre: string; apellido: string; rut: string; correo: string }) {
     setGuardandoUsuario(true);
     setErrorFormUsuario(null);
     try {
@@ -760,6 +774,7 @@ export default function AdminPage() {
                 <thead className="bg-[var(--atm-th)] text-white">
                   <tr>
                     <th className="px-4 py-2 font-medium">Nombre</th>
+                    <th className="px-4 py-2 font-medium">RUT de acceso</th>
                     <th className="px-4 py-2 font-medium">Correo</th>
                     <th className="px-4 py-2 font-medium">Estado</th>
                     <th className="px-4 py-2 font-medium">Acciones</th>
@@ -769,6 +784,7 @@ export default function AdminPage() {
                   {calificadores.map((u) => (
                     <tr key={u.id}>
                       <td className="px-4 py-3 text-zinc-700">{u.nombreCompleto}</td>
+                      <td className="px-4 py-3 text-zinc-700">{u.rut ?? "Pendiente"}</td>
                       <td className="px-4 py-3 text-zinc-700">{u.correo}</td>
                       <td className="px-4 py-3">
                         <span
@@ -786,6 +802,12 @@ export default function AdminPage() {
                             className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
                           >
                             Editar
+                          </button>
+                          <button
+                            onClick={() => setCalificadorARecuperar(u)}
+                            className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Recuperar contraseña
                           </button>
                           {u.activo ? (
                             <button
@@ -808,7 +830,7 @@ export default function AdminPage() {
                   ))}
                   {calificadores.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-4 py-6 text-center text-zinc-400">
+                      <td colSpan={5} className="px-4 py-6 text-center text-zinc-400">
                         Aún no hay calificadores creados.
                       </td>
                     </tr>
@@ -1195,6 +1217,10 @@ export default function AdminPage() {
             onEditar={editarUsuario}
           />
         </Modal>
+      )}
+
+      {calificadorARecuperar && (
+        <RecuperarContrasena calificador={calificadorARecuperar} onCerrar={() => setCalificadorARecuperar(null)} />
       )}
 
     </div>

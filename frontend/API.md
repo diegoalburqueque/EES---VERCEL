@@ -2,7 +2,7 @@
 
 Todas las rutas viven en `src/app/api/**/route.ts` y llevan el comentario `// PALANTIR vX` al
 inicio. **No hay backend separado**: cada handler valida sesión + rol y corre SQL directo
-contra Supabase con el pool de `src/lib/db.ts`.
+contra PostgreSQL con el pool de `src/lib/db.ts` (conexión configurada por `DATABASE_URL`).
 
 ## Cómo se protege cada ruta (2 capas)
 
@@ -44,10 +44,11 @@ Cookie de sesión: `compin_token`, JWT HS256 (`jose`), `httpOnly` + `secure` en 
 ## Auth
 
 ### `POST /api/auth/login`  ·  público
-`src/app/api/auth/login/route.ts` · body `{ correo, password }`.
+`src/app/api/auth/login/route.ts` · body `{ rut, password }`.
 
-Busca el usuario por correo (lower-case) con join a `roles` y `estado_usuario`. Rechaza (401,
-mensaje genérico) si no existe, si está `INACTIVO`, o si `bcrypt.compare` falla. Si pasa: firma
+Normaliza y valida el dígito verificador del RUT, y busca el usuario por RUT con join a `roles`
+y `estado_usuario`. Rechaza (401, mensaje genérico) si no existe, si está `INACTIVO`, o si
+`bcrypt.compare` falla. Si pasa: firma
 el JWT (`firmarSesion`), lo deja en la cookie `compin_token` y responde
 `{ rol, redirigirA }` (`/admin` o `/calificador` según `rutaPorRol`).
 
@@ -183,15 +184,32 @@ Devuelve `{ rango, global, porCalificador[], porVersionMotor[], cohortes? }`.
 estado, `ORDER BY rol, nombre`. **Nunca** devuelve `password_hash`.
 
 ### `POST /api/usuarios`
-Mismo archivo · body `{ nombre, apellido, correo, password, rol? }`.
-Valida: nombre/apellido no vacíos, correo `@grupoees.cl`, password ≥ 8. `rol` = `"ADMIN"` solo
+Mismo archivo · body `{ nombre, apellido, rut, correo, password, rol? }`.
+Valida: nombre/apellido no vacíos, RUT chileno con dígito verificador correcto, correo `@grupoees.cl`, password ≥ 8. `rol` = `"ADMIN"` solo
 si se pide explícito, si no `CALIFICADOR`. Hashea con `bcrypt.hash(password, 10)`, inserta
 resolviendo `rol_id` y `estado_usuario_id` (`ACTIVO`) por subquery. 409 si el correo ya existe
 (código PG `23505`). Responde 201 con el `Usuario`.
 
 ### `PATCH /api/usuarios/[id]`
 `src/app/api/usuarios/[id]/route.ts` · body = cualquier subconjunto de
-`{ nombre, apellido, correo, activo }` — solo se actualiza lo presente.
+`{ nombre, apellido, rut, correo, activo }` — solo se actualiza lo presente.
 `activo: false` → set `estado_usuario_id` a `INACTIVO` (lo más destructivo que existe: **no hay
-DELETE**). Correo nuevo debe ser `@grupoees.cl`; 409 si ya existe. Devuelve el `Usuario`
-actualizado.
+DELETE**). Correo nuevo debe ser `@grupoees.cl`; 409 si el RUT o correo ya existen. Devuelve
+el `Usuario` actualizado.
+
+### Migración del login por RUT
+Antes de desplegar este cambio, ejecutar `migrations/20261014_add_usuarios_rut.sql` y cargar
+los RUT verificados de las cuentas existentes. La columna acepta `NULL` durante la migración,
+pero las cuentas sin RUT no podrán iniciar sesión por el nuevo método.
+
+### Credenciales de CALIFICADOR (Argon2id + copia recuperable AES-256-GCM)
+- **Login / POST `/api/usuarios`:** la contraseña del CALIFICADOR se guarda como hash Argon2id en
+  `usuarios.password_hash` y además cifrada con AES-256-GCM (`node:crypto`, clave en `CREDENCIALES_CLAVE`) en `credenciales_calificador`
+  (misma transacción). El ADMIN sigue con bcrypt y sin copia. Sin `CREDENCIALES_CLAVE` responde
+  503 (falla cerrado). Lógica en `src/lib/credenciales.ts`.
+- **POST `/api/usuarios/[id]/credencial`** · body `{ motivo }` (mín. 10). Solo ADMIN, revalidado
+  como ACTIVO en la base. Descifra en el servidor y devuelve `{ password }` con `Cache-Control: no-store`.
+  Cada intento (ENTREGADA / SIN_COPIA / ERROR_DESCIFRADO) queda en `auditoria_recuperacion_credencial`
+  con admin, calificador, motivo, IP y fecha; nunca la contraseña.
+- Migración: `migrations/20261014_credenciales_calificador.sql` (no reutiliza `camara_secreta`).
+- Pantalla: Admin → Calificadores → «Recuperar contraseña» (`src/components/RecuperarContrasena.tsx`).

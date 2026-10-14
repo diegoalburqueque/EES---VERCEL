@@ -2,8 +2,8 @@ import "server-only";
 import { Pool } from "pg";
 
 /**
- * Pool temporal directo a Postgres (Supabase) — puente para probar el frontend
- * mientras no existe la API real de Cristóbal. Cuando exista, este archivo se
+ * Pool directo a PostgreSQL — el frontend actúa como BFF hasta que exista la API externa.
+ * Cuando exista, este archivo se
  * elimina y el frontend le pega a esa API en vez de a la base directamente.
  */
 declare global {
@@ -20,7 +20,7 @@ export function getPool(): Pool {
       connectionString,
       ssl: { rejectUnauthorized: false },
       // En Vercel cada función corre aislada y abre su propio pool, así que un pool grande
-      // por instancia multiplica las conexiones contra Supabase hasta agotarlas. En local,
+      // por instancia multiplica las conexiones contra el servidor hasta agotarlas. En local,
       // donde hay un solo proceso de larga vida, conviene lo contrario.
       max: process.env.VERCEL ? 1 : 5,
       // Cierra rápido las conexiones ociosas: la instancia puede congelarse entre peticiones
