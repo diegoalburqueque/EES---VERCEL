@@ -4,6 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 
+/** Filtro de frontend: mínimo 7 caracteres, una mayúscula, un número y un carácter especial. */
+function errorFormatoPassword(password: string): string | null {
+  if (password.length < 7) return "Tu contraseña debe tener al menos 7 caracteres";
+  if (!/\p{Lu}/u.test(password)) return "Tu contraseña debe tener al menos una mayúscula";
+  if (!/\d/.test(password)) return "Tu contraseña debe tener al menos un número";
+  if (!/[^\p{L}\p{N}\s]/u.test(password)) return "Tu contraseña debe tener al menos un carácter especial";
+  return null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [rut, setRut] = useState("");
@@ -17,6 +26,7 @@ export default function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (errorFormatoPassword(password)) return;
     setCargando(true);
 
     // La autenticación propia de la plataforma se mantiene en el servidor.
@@ -61,7 +71,7 @@ export default function LoginPage() {
               <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-current text-sm font-bold">
                 E
               </span>
-              <span className="text-lg font-medium tracking-tight">ClaveUnica</span>
+              <span className="text-lg font-medium tracking-tight">Grupo EES</span>
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5" aria-label="Opciones de accesibilidad">
@@ -146,6 +156,11 @@ export default function LoginPage() {
                   </svg>
                 </button>
               </div>
+              {password && errorFormatoPassword(password) && (
+                <p role="alert" className="mt-2 text-sm text-red-600">
+                  {errorFormatoPassword(password)}
+                </p>
+              )}
             </div>
 
 
