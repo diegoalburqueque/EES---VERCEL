@@ -134,13 +134,13 @@ function FormularioUsuario({
       </label>
       {modo === "crear" && (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-500">Contraseña inicial (mín. 8 caracteres)</span>
+          <span className="text-zinc-500">Contraseña inicial (mín. 7 caracteres)</span>
           <input
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={8}
+            minLength={7}
             className="rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 outline-none focus:border-zinc-900"
           />
         </label>

@@ -185,7 +185,7 @@ estado, `ORDER BY rol, nombre`. **Nunca** devuelve `password_hash`.
 
 ### `POST /api/usuarios`
 Mismo archivo · body `{ nombre, apellido, rut, correo, password, rol? }`.
-Valida: nombre/apellido no vacíos, RUT chileno con dígito verificador correcto, correo `@grupoees.cl`, password ≥ 8. `rol` = `"ADMIN"` solo
+Valida: nombre/apellido no vacíos, RUT chileno con dígito verificador correcto, correo `@grupoees.cl`, password ≥ 7. `rol` = `"ADMIN"` solo
 si se pide explícito, si no `CALIFICADOR`. Hashea con `bcrypt.hash(password, 10)`, inserta
 resolviendo `rol_id` y `estado_usuario_id` (`ACTIVO`) por subquery. 409 si el correo ya existe
 (código PG `23505`). Responde 201 con el `Usuario`.

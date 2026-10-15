@@ -76,10 +76,10 @@ export async function POST(request: Request) {
     typeof apellido !== "string" || !apellido.trim() ||
     typeof correo !== "string" || !CORREO_INSTITUCIONAL.test(correo.trim()) ||
     !rutNormalizado ||
-    typeof password !== "string" || password.length < 8
+    typeof password !== "string" || password.length < 7
   ) {
     return NextResponse.json(
-      { error: "Datos inválidos: nombre, apellido, RUT válido y correo @grupoees.cl son obligatorios; la contraseña debe tener al menos 8 caracteres." },
+      { error: "Datos inválidos: nombre, apellido, RUT válido y correo @grupoees.cl son obligatorios; la contraseña debe tener al menos 7 caracteres." },
       { status: 400 }
     );
   }

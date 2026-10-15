@@ -63,8 +63,8 @@ export async function POST(request: Request) {
     if (usuario.rol !== "CALIFICADOR") {
       return NextResponse.json({ error: "RUT o contraseña incorrectos, o el usuario está inactivo." }, { status: 401 });
     }
-    if (password.length < 8) {
-      return NextResponse.json({ error: "La contraseña debe tener al menos 8 caracteres." }, { status: 400 });
+    if (password.length < 7) {
+      return NextResponse.json({ error: "La contraseña debe tener al menos 7 caracteres." }, { status: 400 });
     }
     // Falla cerrado: sin clave de cifrado no se crea una contraseña que después no se podría recuperar.
     if (!cifradoConfigurado()) {
