@@ -51,7 +51,7 @@ function paresDeRegistro(reg?: Record<string, unknown>): { etiqueta: string; val
     }));
 }
 
-interface Bloque {
+export interface Bloque {
   id: string;
   titulo: string;
   /** Encabezado interno opcional, p. ej. "Informe biomédico funcional:". */
@@ -74,7 +74,7 @@ interface Bloque {
 /** Campo de la casilla de CeroFilas que fija el % final que se guarda en la base. */
 export const CAMPO_PORCENTAJE_FINAL = "cf_porcentaje";
 
-const clavePorCaso = (casoId: string) => `ficha-editada:${casoId}`;
+export const clavePorCaso = (casoId: string) => `ficha-editada:${casoId}`;
 
 /**
  * % final que dejó el calificador en la casilla "COPIAR Y PEGAR EN CEROFILAS".
@@ -114,7 +114,7 @@ export function leerPorcentajeFinal(casoId: string): number | null {
 
 const SIN_DATO = "";
 
-function texto(valor: string | null | undefined): string {
+export function texto(valor: string | null | undefined): string {
   return valor?.trim() ?? SIN_DATO;
 }
 
@@ -122,7 +122,7 @@ function texto(valor: string | null | undefined): string {
  *  "¿hay dato real?" cuentan como vacío, igual que "". */
 const PLACEHOLDERS_SIN_DATO = new Set(["NO_DETERMINADO", "NO DETERMINADO", "No consta en el expediente"]);
 
-function hayDato(valor: string): boolean {
+export function hayDato(valor: string): boolean {
   return valor !== "" && !PLACEHOLDERS_SIN_DATO.has(valor);
 }
 
@@ -137,7 +137,7 @@ function conRespaldo(valor: string, ...respaldos: string[]): string {
   return valor;
 }
 
-function construirBloques(analisis: AnalisisQA): Bloque[] {
+export function construirBloques(analisis: AnalisisQA): Bloque[] {
   const cliente = analisis.propuesta_formato_cliente;
   const social = cliente.antecedentes_sociales;
   const ibf = cliente.datos_relevantes_calificacion;
@@ -586,7 +586,7 @@ function bloqueATexto(bloque: Bloque, valores: Record<string, string>): string {
 
 /* ── piezas de interfaz ─────────────────────────────────────────────────── */
 
-function BotonCopiar({ obtenerTexto }: { obtenerTexto: () => string }) {
+export function BotonCopiar({ obtenerTexto }: { obtenerTexto: () => string }) {
   const [copiado, setCopiado] = useState(false);
 
   async function copiar() {
@@ -1138,7 +1138,7 @@ function lineasAntecedentesSociales(valores: Record<string, string>) {
 }
 
 /** Texto de los 5 sub-campos para el bloque que se copia a CeroFilas. */
-function textoAntecedentesSociales(valores: Record<string, string>): string {
+export function textoAntecedentesSociales(valores: Record<string, string>): string {
   return lineasAntecedentesSociales(valores)
     .map((l) => `* ${l.etiqueta}: ${l.valor}`)
     .join("\n");
@@ -1159,12 +1159,58 @@ const REEV_TEXTO: Record<string, string> = {
 };
 
 /**
+ * Las 5 líneas de la PROPUESTA (porcentaje, orígenes, fundamento, MR y REEV) con la decisión
+ * FINAL del calificador, no la sugerencia del bot. Van al final de "Observaciones Datos
+ * Relevantes de Calificación" y también como contenido de "Notas para la Certificación".
+ */
+function lineasPropuestaSugerida(
+  bloques: Bloque[],
+  valores: Record<string, string>,
+  resolucion: ResolucionCalificador | null,
+  porcentajeFinal: number | null
+): string[] {
+  const v = (bloqueId: string, campoId: string) => valorCampo(bloques, bloqueId, campoId, valores);
+
+  let lineaPorcentaje = "";
+  if (porcentajeFinal !== null && resolucion?.direccion) {
+    lineaPorcentaje =
+      resolucion.direccion === "SE_MANTIENE"
+        ? `MANTENER % EN ${porcentajeFinal}%`
+        : `${VERBO_DIRECCION[resolucion.direccion]} % A ${porcentajeFinal}%`;
+  } else if (porcentajeFinal !== null) {
+    lineaPorcentaje = `${porcentajeFinal}%`;
+  }
+  const lineaMr =
+    resolucion?.mrFinal === true ? "SI" : resolucion?.mrFinal === false ? "NO" : v("propuesta", "prop_mr");
+  const lineaReev = resolucion?.reevFinal ? REEV_TEXTO[resolucion.reevFinal] : v("propuesta", "prop_reev");
+  const lineaFundamento = (resolucion?.explicacion ?? "").trim() || v("propuesta", "prop_fundamento");
+
+  return [
+    `•\tPorcentaje: ${lineaPorcentaje}`,
+    `•\tOrígenes: ${v("propuesta", "prop_origenes")}`,
+    `•\tFundamento: ${lineaFundamento}`,
+    `•\tMR: ${lineaMr}`,
+    `•\tREEV: ${lineaReev}`,
+  ];
+}
+
+/** Texto del campo "Notas para la Certificación de Discapacidad" del portal: la propuesta de calificación. */
+export function textoPropuestaSugerida(
+  bloques: Bloque[],
+  valores: Record<string, string>,
+  resolucion: ResolucionCalificador | null,
+  porcentajeFinal: number | null
+): string {
+  return ["PROPUESTA, SE SUGIERE:", ...lineasPropuestaSugerida(bloques, valores, resolucion, porcentajeFinal)].join("\n");
+}
+
+/**
  * Texto completo del campo "Observaciones Datos Relevantes de Calificación" de CeroFilas:
  * informe biomédico funcional + complementarios + IVADEC + observaciones del IVADEC + la
  * PROPUESTA con la DECISIÓN FINAL del calificador (no la sugerencia del bot) + firma.
  * Todo sale de lo que el calificador dejó en la ficha (`valores`) y de su resolución.
  */
-function textoObservacionesCerofilas(
+export function textoObservacionesCerofilas(
   bloques: Bloque[],
   valores: Record<string, string>,
   analisis: AnalisisQA,
@@ -1184,21 +1230,6 @@ function textoObservacionesCerofilas(
     const val = (valores[c.id] ?? c.valor).trim();
     return c.etiqueta === "Sin informes" ? `- ${val}` : `- ${c.etiqueta}${val ? `: ${val}` : ""}`;
   });
-
-  // PROPUESTA: la decisión final del calificador, no la del bot.
-  let lineaPorcentaje = "";
-  if (porcentajeFinal !== null && resolucion?.direccion) {
-    lineaPorcentaje =
-      resolucion.direccion === "SE_MANTIENE"
-        ? `MANTENER % EN ${porcentajeFinal}%`
-        : `${VERBO_DIRECCION[resolucion.direccion]} % A ${porcentajeFinal}%`;
-  } else if (porcentajeFinal !== null) {
-    lineaPorcentaje = `${porcentajeFinal}%`;
-  }
-  const lineaMr =
-    resolucion?.mrFinal === true ? "SI" : resolucion?.mrFinal === false ? "NO" : v("propuesta", "prop_mr");
-  const lineaReev = resolucion?.reevFinal ? REEV_TEXTO[resolucion.reevFinal] : v("propuesta", "prop_reev");
-  const lineaFundamento = (resolucion?.explicacion ?? "").trim() || v("propuesta", "prop_fundamento");
 
   const lineas: string[] = [
     `Informe biomédico funcional:${ibfPor ? ` ${ibfPor}` : ""}`,
@@ -1227,11 +1258,7 @@ function textoObservacionesCerofilas(
     v("propuesta", "observaciones_ivadec"),
     "",
     "     PROPUESTA, SE SUGIERE:",
-    `•\tPorcentaje: ${lineaPorcentaje}`,
-    `•\tOrígenes: ${v("propuesta", "prop_origenes")}`,
-    `•\tFundamento: ${lineaFundamento}`,
-    `•\tMR: ${lineaMr}`,
-    `•\tREEV: ${lineaReev}`,
+    ...lineasPropuestaSugerida(bloques, valores, resolucion, porcentajeFinal),
   ];
 
   if (calificadorNombre) {

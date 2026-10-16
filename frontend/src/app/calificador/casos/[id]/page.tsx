@@ -6,7 +6,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSesion } from "@/components/SesionProvider";
 import { useCasos } from "@/components/CasosProvider";
 import { CalificadorHeader } from "@/components/CalificadorHeader";
-import { FichaEditable, PantallaCerofilas } from "@/components/FichaEditable";
+import { FichaEditable } from "@/components/FichaEditable";
+import { PantallaPortal } from "@/components/PantallaPortal";
 import {
   TablaComparativaIdis,
   PanelResolucion,
@@ -130,7 +131,7 @@ export default function DetalleCasoPage() {
         <main className="flex-1 px-6 py-6">
           <div className="mx-auto max-w-[1100px]">
             {caso.analisis ? (
-              <PantallaCerofilas
+              <PantallaPortal
                 analisis={caso.analisis}
                 casoId={caso.id}
                 subiendo={subiendoCerofilas}

@@ -126,6 +126,16 @@ export interface ReglaDeterministica {
   origenes_ignorados?: string[];
 }
 
+/** Código de un diagnóstico en el catálogo del portal de calificación (lo calcula el bot). */
+export interface DiagnosticoPortal {
+  texto: string;
+  estado: "COINCIDENCIA" | "PROBABLE" | "SIN_COINCIDENCIA";
+  codigo: number | null;
+  nombre_portal: string | null;
+  puntaje: number | null;
+  candidatos: { codigo: number; nombre: string; puntaje: number }[];
+}
+
 export interface AnalisisQA {
   metadata_informe: {
     tipo_informe: string;
@@ -259,4 +269,10 @@ export interface AnalisisQA {
   fuentes_duras_calificacion?: FuentesDurasCalificacion;
   fuentes_duras_admisibilidad?: FuentesDurasAdmisibilidad;
   reglas_deterministicas?: Record<string, ReglaDeterministica>;
+  /** Códigos del catálogo del portal para cada diagnóstico; ausente en análisis anteriores al 15/10/2026. */
+  diagnosticos_portal?: {
+    principal: DiagnosticoPortal | null;
+    secundarios: DiagnosticoPortal[];
+    advertencia: string | null;
+  };
 }
